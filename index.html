@@ -351,7 +351,8 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
     <label class="f">港口（帰港の目標。設定すると、まず港口へ案内してから母港へ）</label>
     <div class="note" id="sGateNow">未設定</div>
     <div class="row" style="margin-top:6px"><button class="btn sm" id="sGateCenter">🗺 地図で選ぶ</button><button class="btn sm" id="sGateClear">消す</button></div>
-    <label class="f">巡航速力 (kn)：帰港時刻の見積もりに使います</label><input type="number" id="sCruise" step="1" inputmode="decimal">
+    <div class="grid2"><div><label class="f">沖の巡航速力 (kn)</label><input type="number" id="sCruise" step="1" inputmode="decimal"></div><div><label class="f">港内の速力 (kn)</label><input type="number" id="sHarbor" step="1" inputmode="decimal"></div></div>
+    <div class="note">帰港時刻の見積もりに使います（港口から母港までは港内の速力）。</div>
   </div>
   <div class="card">
     <h3 style="margin-top:0">出船の目安（しきい値）</h3>
@@ -542,7 +543,7 @@ const store = {
 };
 let points = store.get('points', []);
 let tracks = store.get('tracks', []);
-const settings = Object.assign({windG:5, windY:8, waveG:0.8, waveY:1.5, fmt:'dm', near:60, wake:false, night:false, sound:true, cruise:12, home:null, anchorR:40, msilKey:''}, store.get('settings', {}));
+const settings = Object.assign({windG:5, windY:8, waveG:0.8, waveY:1.5, fmt:'dm', near:60, wake:false, night:false, sound:true, cruise:12, harbor:5, home:null, anchorR:40, msilKey:''}, store.get('settings', {}));
 const saveSettings = () => store.set('settings', settings);
 // 設定を変える：保存に成功したときだけ反映する
 function applySettings(patch, okMsg){
@@ -920,7 +921,8 @@ function onPos(pos){
   if (!poor) lastFix = {ll, t:now, acc:c.accuracy, sog: (gapFix || jump) && c.speed == null ? null : sog};
   if (gapFix || jump) fixes.length = 0; // 途切れや飛びをまたいで速さを出さない
   fixes.push({ll, t:now, acc:c.accuracy}); while (fixes.length && now - fixes[0].t > 180000) fixes.shift();
-  me = {lat:ll[0], lon:ll[1], acc:c.accuracy, sog, sogEst, t:now};
+  // 飛んだ位置は「確認中」。次の測位がそこから無理なく続けば確かな位置として扱う
+  me = {lat:ll[0], lon:ll[1], acc:c.accuracy, sog, sogEst, t:now, suspect:jump};
   renderInstruments();
   if (!meMarker){ meMarker = L.marker(ll, {icon:meIcon(null), zIndexOffset:1000, interactive:false}).addTo(map); accCircle = L.circle(ll, {radius:c.accuracy, weight:1, color:'#3fb8ff', fillOpacity:.08, interactive:false}).addTo(map); if (follow) map.setView(ll, Math.max(map.getZoom(), 14)); }
   meMarker.setLatLng(ll).setIcon(meIcon(cogNow())); accCircle.setLatLng(ll).setRadius(c.accuracy);
@@ -1047,6 +1049,7 @@ function modeOnFix(ll, t, gap){
   }
 }
 // 流し・錨泊の記録（振り返りと「前に釣れた筋」用）。最新300件まで
+const LOG_MAX = 300; // 流し・錨泊の履歴の上限（端末の保存容量のため）
 function logSession(x){
   let log = store.get('driftLog', []);
   // 取り込みなどで同じIDがすでにあれば、新しく足さずに置き換える（流し1回を2回と数えない）
@@ -1054,8 +1057,10 @@ function logSession(x){
   if (same >= 0){ const old = log[same]; log = log.filter((_, i) => i !== same); if (x.pts && old.pts){ const m = new Map(old.pts.map(p => [p[2], p])); x.pts.forEach(p => { const q = m.get(p[2]); m.set(p[2], q && q[3] === 1 && p[3] !== 1 ? [p[0], p[1], p[2], 1] : p); }); x.pts = [...m.values()].sort((a, b) => a[2] - b[2]); } x.start = Math.min(x.start, old.start); }
   // 点が多い流しは間引く。ただし途切れの前後の点は必ず残す
   if (x.pts && x.pts.length > 200){ const k = Math.ceil(x.pts.length/200); x.pts = x.pts.filter((p, i, a) => i % k === 0 || i === a.length - 1 || p[3] === 1 || a[i+1]?.[3] === 1); }
-  log.push(x); while (log.length > 300) log.shift();
-  return store.set('driftLog', log);
+  log.push(x); let cut = 0; while (log.length > LOG_MAX){ log.shift(); cut++; }
+  const ok = store.set('driftLog', log);
+  if (ok && cut) setTimeout(() => toast(`流し・錨泊の記録は最新${LOG_MAX}件まで保存します。古い${cut}件を消しました（釣果の地点は残ります）。長く残すには記録タブの「全データを書き出し」を定期的に`, true, 9000), 1500);
+  return ok;
 }
 // ひと流しを終える：今日のうちは灰色の筋として残し、記録にも入れる
 function endDrift(){
@@ -1118,7 +1123,7 @@ const setText = (id, v) => { const el = document.getElementById(id); if (el && e
 function anchorState(){
   if (!anchor) return null;
   const fresh = gpsFresh(), d = me ? distM(anchor.ll, [me.lat, me.lon]) : null;
-  const gpsBad = !fresh || !me || me.acc >= anchor.r;
+  const gpsBad = !fresh || !me || me.acc >= anchor.r || !!me.suspect;
   if (d != null && !gpsBad){
     if (d > anchor.r && !anchorAlarm){ anchorAlarm = true; alarmMuted = false; startAlarm(); }
     else if (d < anchor.r*0.8 && anchorAlarm){ anchorAlarm = false; alarmMuted = false; silenceAlarm(); }
@@ -1218,7 +1223,7 @@ function updateMode(){
     $('#mdUp').onclick = () => { if (!confirm('錨泊の見張りを終わりにしますか？')) return; if (endAnchor()){ panelKey = ''; updateMode(); } };
   });
   p.classList.toggle('alarm', anchorAlarm); document.body.classList.toggle('alarm', anchorAlarm);
-  setText('mdHead', anchorAlarm ? `<div style="font-size:20px;font-weight:900;color:#fff;text-align:center">⚠ 走錨のおそれ！錨から離れています${alarmMuted ? '（消音中）' : ''}</div>` : st.gpsBad ? '<div style="font-size:16px;font-weight:900;color:var(--warn);text-align:center">⚠ GPS不良：いまは見張りができません</div>' : '');
+  setText('mdHead', anchorAlarm ? `<div style="font-size:20px;font-weight:900;color:#fff;text-align:center">⚠ 走錨のおそれ！錨から離れています${alarmMuted ? '（消音中）' : ''}</div>` : st.gpsBad ? `<div style="font-size:16px;font-weight:900;color:var(--warn);text-align:center">${me?.suspect && gpsFresh() ? '⚠ GPSの位置が飛びました：確認中（この位置では判定しません）' : '⚠ GPS不良：いまは見張りができません'}</div>` : '');
   setText('mdD', `${d == null ? '--' : Math.round(d)}<small>m</small>`);
   setText('mdT', fmtDur((Date.now() - anchor.t)/60000));
   // 常に見せるのは、いま困っていることだけ（GPS不良・画面保持の失敗・音が鳴らない）
@@ -1304,6 +1309,7 @@ function openPoint(id, init){
   let info = condText(p.cond);
   if (p.lat != null) info += (info ? '\n' : '') + `位置：${fmtLL(p.lat, p.lon)}` + (me ? `（ここから ${fmtDist(distM([me.lat, me.lon], [p.lat, p.lon]))}）` : '');
   pPosInfo = {posSrc:p.posSrc, acc:p.acc, fixAt:p.fixAt};
+  pOrig = {pos:$('#pPos').value, time:$('#pTime').value};
   $('#pHere').textContent = !me || gpsFresh() ? '📍現在地' : '📍最終受信位置';
   if (posSrcText(p)) info += `\n位置の出所：${posSrcText(p)}`;
   $('#pCond').textContent = info;
@@ -1313,7 +1319,7 @@ function openPoint(id, init){
   dlg.showModal();
 }
 $('#pX').onclick = () => dlg.close();
-let pPosInfo = {};
+let pPosInfo = {}, pOrig = {}; // 開いた時の座標・日時の表示（表示の丸めで「動かした」と誤判定しないため）
 $('#pHere').onclick = () => {
   if (!me) return toast('まだGPSの位置がありません');
   if (!gpsFresh() && !confirm(`GPSの最後の受信は ${Math.round(gpsAge())}秒前です。その時の位置を使いますか？`)) return;
@@ -1326,8 +1332,10 @@ $('#pSave').onclick = () => {
   if (!ll){ $('#pPos').focus(); return; }
   const num = id => { const v = $(id).value; return v === '' || !isFinite(Number(v)) ? null : Number(v); };
   const p = editing, isNew = !p.id;
-  const time = new Date($('#pTime').value).getTime() || p.time || Date.now();
-  const moved = !isNew && (Math.abs(p.lat - ll[0]) > 1e-6 || Math.abs(p.lon - ll[1]) > 1e-6 || Math.abs((p.time || 0) - time) > 60000);
+  const posEdited = $('#pPos').value !== pOrig.pos, timeEdited = $('#pTime').value !== pOrig.time;
+  if (!isNew && !posEdited){ ll[0] = p.lat; ll[1] = p.lon; }
+  const time = !isNew && !timeEdited ? p.time : (new Date($('#pTime').value).getTime() || p.time || Date.now());
+  const moved = !isNew && (posEdited || timeEdited) && (Math.abs(p.lat - ll[0]) > 1e-6 || Math.abs(p.lon - ll[1]) > 1e-6 || Math.abs((p.time || 0) - time) > 60000);
   // 保存候補を別に作り、保存できてから確定する
   const c = Object.assign({}, p, {
     id: p.id || uid(), type: editType, lat: ll[0], lon: ll[1], name: $('#pName').value.trim(), memo: $('#pMemo').value.trim(),
@@ -1538,8 +1546,9 @@ function updateNav(){
     let total = mins;
     if (navTarget.thenHome && settings.home){
       const leg2 = distM(t, [settings.home.lat, settings.home.lon]);
-      total = (mins ?? d/1852/settings.cruise*60) + leg2/1852/settings.cruise*60;
-      eta = (mins != null ? `港口まで ${eta}` : eta) + `<br>母港まで合計 約${fmtDur(total)}（${hm(new Date(Date.now() + total*60000))}着・港内は巡航${settings.cruise}ktで計算）`;
+      const inner = leg2/1852/(settings.harbor || 5)*60;
+      total = (mins ?? d/1852/settings.cruise*60) + inner;
+      eta = (mins != null ? `港口まで ${eta}` : eta) + `<br>母港まで合計 約${fmtDur(total)}（${hm(new Date(Date.now() + total*60000))}着・港内${settings.harbor || 5}ktで+${fmtDur(inner)}）`;
     }
     if (mins != null || total != null) eta = eta.replace(/着）/, '着・直線）');
     if (navTarget.home && total != null){
@@ -1548,7 +1557,7 @@ function updateNav(){
     }
     body = `<div class="nm" style="font-size:14px;color:var(--text);font-weight:700">${navTarget.home ? '⚓ ' : '➤ '}${esc(navTarget.name)}</div>
       <div class="row" style="flex-wrap:nowrap;gap:8px;margin-top:2px;align-items:center"><svg id="navArrow" viewBox="0 0 44 44" style="transform:rotate(${rel ?? b}deg);flex:none"><path d="M22 3 L34 38 L22 30 L10 38 Z" fill="var(--accent)" stroke="#fff" stroke-width="2"/></svg>
-      <div style="white-space:nowrap;flex:none"><div class="big2">${fmtDist(d)}</div></div><div style="font-size:18px;font-weight:800;white-space:nowrap">${Math.round(b)}° ${dir16(b)}</div></div>
+      <div style="min-width:0"><div class="big2" style="white-space:nowrap">${fmtDist(d)}</div><div style="font-size:18px;font-weight:800;white-space:nowrap">${Math.round(b)}° ${dir16(b)}</div></div></div>
       <div class="note" style="line-height:1.35;font-size:14px;color:var(--text)">${eta}</div>
       <div style="font-size:14px"><b>${rel != null ? `矢印：進路 ${Math.abs(rel) < 10 ? '正面' : (rel > 0 ? '右 ' : '左 ') + Math.abs(Math.round(rel)) + '°'}` : '矢印：北が上（進路不明）'}</b><br><span style="color:var(--warn)">⚠ 直線案内：陸・浅場・網は避けません</span></div>`;
     if (d < Math.max(30, me.acc) && !stale && !navTarget.arrived && !(activeMob && navTarget.id === activeMob.id)){ navTarget.arrived = true; buzz([200,100,200]); toast(`${navTarget.name} の付近です${navTarget.thenHome ? '。港口を通過したら「母港へ」を押してください' : ''}`); }
@@ -1930,13 +1939,19 @@ function tripList(){
   const ev = [], brk0 = (settings.tripBreaks || []).slice().sort((a, b) => a - b);
   // 航跡は手で区切った時刻で分けてから並べる（区切りの前後の距離を正しく振り分ける）
   // 境界をまたぐ区間は後ろの釣行に入れる（前の区切りの最後の点から続ける）ので、距離の合計は変わらない
-  const splitPts = pts => { const out = []; let seg = []; pts.forEach(p => { if (seg.length && brk0.some(k => seg[seg.length-1][2] < k && k <= p[2])){ out.push(seg); seg = [seg[seg.length-1]]; } seg.push(p); }); if (seg.length) out.push(seg); return out; };
-  const addTrack = pts => splitPts(pts).forEach(seg => { if (seg.length > 1) ev.push({a:seg[1][2], b:seg[seg.length-1][2], dist:trackDist(seg)}); else if (seg.length) ev.push({a:seg[0][2], b:seg[0][2], dist:0}); });
+  // 区切りの時刻に、前後の点から位置を比例配分した境界点を入れて分ける（時間・距離とも前後に配分）
+  const splitPts = pts => { const out = []; let seg = [];
+    pts.forEach(p => { const q = seg[seg.length-1];
+      if (q){ brk0.filter(k => q[2] < k && k < p[2]).forEach(k => { const f = (k - q[2])/(p[2] - q[2]), b = [q[0] + (p[0] - q[0])*f, q[1] + (p[1] - q[1])*f, k]; if (p[3] === 1) b[3] = 1; seg.push(b); out.push(seg); seg = [[b[0], b[1], k]]; });
+        if (brk0.includes(p[2]) && seg.length > 1 && seg[seg.length-1][2] !== p[2]){ seg.push(p); out.push(seg); seg = [[p[0], p[1], p[2]]]; return; } }
+      seg.push(p); });
+    if (seg.length) out.push(seg); return out.filter(sg => sg.length > 1 || out.length === 1); };
+  const addTrack = pts => splitPts(pts).forEach(seg => ev.push({a:seg[0][2], b:seg[seg.length-1][2], dist:seg.length > 1 ? trackDist(seg) : 0}));
   tracks.forEach(t => addTrack(t.pts));
   if (rec && rec.pts.length > 1) addTrack(rec.pts);
   // 流し・錨泊も区切りで分ける。回数は始まった方の釣行だけで数える
   store.get('driftLog', []).forEach(x => {
-    if (x.pts?.length > 1){ splitPts(x.pts).forEach((seg, i) => { if (seg.length < 2 && i) return; ev.push({a:seg[i ? 1 : 0]?.[2] ?? seg[0][2], b:seg[seg.length-1][2], kind:x.kind, first:i === 0, min:sessMin({start:seg[0][2], end:seg[seg.length-1][2], pts:seg})}); }); return; }
+    if (x.pts?.length > 1){ splitPts(x.pts).forEach((seg, i) => { ev.push({a:seg[0][2], b:seg[seg.length-1][2], kind:x.kind, first:i === 0, min:sessMin({start:seg[0][2], end:seg[seg.length-1][2], pts:seg})}); }); return; }
     const cuts = [x.start, ...brk0.filter(k => x.start < k && k < x.end), x.end];
     for (let i = 1; i < cuts.length; i++) ev.push({a:cuts[i-1], b:cuts[i], kind:x.kind, first:i === 1, min:(cuts[i] - cuts[i-1])/60000});
   });
@@ -2064,7 +2079,7 @@ function cleanCond(c, t){
 function cleanSettings(j){
   const o = {};
   const n = (k, lo, hi) => { const v = numIn(j[k], lo, hi); if (v != null) o[k] = v; };
-  n('windG', 0.5, 40); n('windY', 0.5, 40); n('waveG', 0.1, 10); n('waveY', 0.1, 10); n('near', 10, 2000); n('cruise', 1, 60); n('anchorR', 10, 500);
+  n('windG', 0.5, 40); n('windY', 0.5, 40); n('waveG', 0.1, 10); n('waveY', 0.1, 10); n('near', 10, 2000); n('cruise', 1, 60); n('harbor', 1, 30); n('anchorR', 10, 500);
   if (o.windG != null && o.windY != null && o.windY < o.windG) delete o.windY;
   if (o.waveG != null && o.waveY != null && o.waveY < o.waveG) delete o.waveY;
   if (['dm','dec'].includes(j.fmt)) o.fmt = j.fmt;
@@ -2197,10 +2212,10 @@ $('#imFile').onchange = async e => {
   const restoreSet = Object.keys(newSet).length > 0 && confirm(`バックアップの設定（しきい値など）も復元しますか？${chg.length ? '\n' + chg.join('\n') : ''}\n［キャンセル］なら記録だけ取り込みます`);
   const any = add.length || addTr.length || logAdd.length || upd || trUpd || ptUpd.length;
   if (!any && !restoreSet) return toast(`新しく追加できる記録はありませんでした（すでにある ${dup}件・読めない ${bad}件）`, true, 6000);
-  if (any && !confirm(`地点 ${add.length}件・航跡 ${addTr.length}件・流し/錨泊の記録 ${logAdd.length}件を追加${upd + trUpd + ptUpd.length ? `、${upd + trUpd + ptUpd.length}件を中身の違う版に更新` : ''}します。\n（すでにある同じ記録 ${dup}件、日時や座標がおかしい ${bad}件は取り込みません）`)) return;
+  if (any && !confirm(`地点 ${add.length}件・航跡 ${addTr.length}件・流し/錨泊の記録 ${logAdd.length}件を追加${upd + trUpd + ptUpd.length ? `、${upd + trUpd + ptUpd.length}件を中身の違う版に更新` : ''}します。\n（すでにある同じ記録 ${dup}件、日時や座標がおかしい ${bad}件は取り込みません）${log0.length + logAdd.length > LOG_MAX ? `\n※流し・錨泊の記録は最新${LOG_MAX}件までなので、古い${log0.length + logAdd.length - LOG_MAX}件は入りません` : ''}`)) return;
   // 3つとも保存できたときだけ確定。途中で失敗したら元に戻す
   const logOrig = store.get('driftLog', []);
-  const nextTr = tracksBase.concat(addTr), nextLog = log0.concat(logAdd).sort((a, b) => a.start - b.start).slice(-300);
+  const nextTr = tracksBase.concat(addTr), nextLog0 = log0.concat(logAdd).sort((a, b) => a.start - b.start), nextLog = nextLog0.slice(-LOG_MAX);
   if (!store.set('tracks', nextTr)) return toast('取り込めませんでした（航跡を保存できず）。' + SAVE_FAIL, true, 9000);
   if (!store.set('driftLog', nextLog)){ store.set('tracks', tracks); return toast('取り込めませんでした（流しの記録を保存できず）。' + SAVE_FAIL, true, 9000); }
   const upById = new Map(ptUpd.map(c => [c.id, c]));
@@ -2344,7 +2359,7 @@ $('#fAdd').onclick = () => startPick('ポイントを登録する場所を選ぶ
 $('#sHomeName').onchange = e => { if (settings.home){ if (!applySettings({home:Object.assign({}, settings.home, {name: e.target.value.trim() || '母港'})}, '母港の名前を保存しました')) e.target.value = settings.home.name; renderHome(); } };
 // ◎の上限は△の上限以下でないと、強い風が「基準内」になってしまう
 const thPairBad = o => o.windG > o.windY ? `風速の◎（${o.windG}）が△（${o.windY}）より大きくなっています` : o.waveG > o.waveY ? `波高の◎（${o.waveG}）が△（${o.waveY}）より大きくなっています` : '';
-const setMap = {sWindG:'windG', sWindY:'windY', sWaveG:'waveG', sWaveY:'waveY', sNear:'near', sCruise:'cruise'};
+const setMap = {sWindG:'windG', sWindY:'windY', sWaveG:'waveG', sWaveY:'waveY', sNear:'near', sCruise:'cruise', sHarbor:'harbor'};
 Object.entries(setMap).forEach(([id, k]) => { $('#'+id).value = settings[k]; $('#'+id).onchange = e => { const v = Number(e.target.value); if (!(v > 0)){ e.target.value = settings[k]; return toast('0より大きい数を入れてください'); }
   const pairBad = thPairBad(Object.assign({}, settings, {[k]: v}));
   $('#sThErr').textContent = pairBad ? `⚠ ${pairBad}。入れ直してください（元の値に戻しました）` : ''; $('#sThErr').style.display = pairBad ? 'block' : 'none';
