@@ -1,0 +1,1013 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>室蘭ボート釣りナビ</title>
+<meta name="theme-color" content="#0b2236">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --bg:#0b2236; --panel:#102c45; --panel2:#163a5a; --line:#25506f; --text:#e8f1f8; --sub:#9db7cc;
+  --accent:#3fb8ff; --good:#3ddc84; --warn:#ffc53d; --bad:#ff5a5a; --catch:#ff8a3d; --spot:#36cfc9; --reef:#a77bff; --danger:#ff4d4f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+button{font:inherit;color:inherit;cursor:pointer}
+#bar{position:fixed;top:0;left:0;right:0;z-index:1000;display:grid;grid-template-columns:1fr 1fr 1.6fr;gap:1px;background:var(--line);padding-top:env(safe-area-inset-top)}
+#bar>div{background:var(--bg);padding:4px 8px;min-width:0}
+#bar .k{font-size:10px;color:var(--sub)}
+#bar .v{font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bar .v small{font-size:11px;font-weight:400;color:var(--sub)}
+#bar .wide{grid-column:1/-1;display:flex;gap:10px;font-size:12px;color:var(--sub);padding:3px 8px;white-space:nowrap;overflow:hidden}
+#bar .wide b{color:var(--text)}
+#map{position:fixed;left:0;right:0;top:calc(76px + env(safe-area-inset-top));bottom:calc(56px + env(safe-area-inset-bottom));background:#aad3df}
+#tabs{position:fixed;left:0;right:0;bottom:0;z-index:1000;display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+#tabs button{flex:1;background:none;border:0;padding:8px 0 6px;font-size:12px;color:var(--sub)}
+#tabs button span{display:block;font-size:19px;line-height:1.1}
+#tabs button.on{color:var(--accent)}
+.fabs{position:fixed;right:10px;z-index:900;display:flex;flex-direction:column;gap:8px;top:calc(130px + env(safe-area-inset-top))}
+.fab{width:46px;height:46px;border-radius:12px;border:1px solid var(--line);background:rgba(16,44,69,.92);font-size:12px;font-weight:700;line-height:1.1;display:flex;align-items:center;justify-content:center;text-align:center}
+.fab.on{background:var(--accent);color:#04263d;border-color:var(--accent)}
+.fab.rec.on{background:var(--bad);border-color:var(--bad);color:#fff}
+.fab.mob{background:#b30000;border-color:#ff6b6b;color:#fff}
+#catchBtn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(68px + env(safe-area-inset-bottom));z-index:900;background:var(--catch);color:#2b1200;border:0;border-radius:28px;padding:12px 26px;font-size:18px;font-weight:800;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+#navBox{position:fixed;left:10px;z-index:900;top:calc(84px + env(safe-area-inset-top));background:rgba(16,44,69,.94);border:1px solid var(--accent);border-radius:10px;padding:6px 10px;font-size:13px;display:none;max-width:60vw}
+#navBox b{font-size:17px}
+#timebar{position:fixed;left:10px;right:66px;z-index:900;bottom:calc(122px + env(safe-area-inset-bottom));background:rgba(16,44,69,.94);border:1px solid var(--line);border-radius:10px;padding:4px 10px;display:none;font-size:12px}
+#timebar input{width:100%}
+.sheet{position:fixed;left:0;right:0;bottom:calc(56px + env(safe-area-inset-bottom));top:calc(76px + env(safe-area-inset-top));z-index:950;background:var(--bg);overflow:auto;padding:12px 12px 40px;display:none}
+.sheet.show{display:block}
+h2{font-size:17px;margin:4px 0 10px}
+h3{font-size:14px;margin:16px 0 6px;color:var(--sub)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:14px}
+.btn.pri{background:var(--accent);color:#04263d;border-color:var(--accent);font-weight:700}
+.btn.danger{border-color:var(--bad);color:#ffb3b3}
+.btn.sm{padding:5px 9px;font-size:12px}
+.note{font-size:12px;color:var(--sub);line-height:1.6}
+.big{font-size:26px;font-weight:800}
+table.fc{border-collapse:collapse;font-size:12px;width:100%}
+table.fc th,table.fc td{padding:4px 3px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+table.fc th{position:sticky;top:-12px;background:var(--panel2);font-weight:600;color:var(--sub)}
+.day td{background:var(--panel2);text-align:left;font-weight:700}
+.g{color:var(--good)}.y{color:var(--warn)}.r{color:var(--bad)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%}
+.dot.g{background:var(--good)}.dot.y{background:var(--warn)}.dot.r{background:var(--bad)}
+.arrow{display:inline-block}
+label.f{display:block;font-size:12px;color:var(--sub);margin:8px 0 2px}
+input,select,textarea{width:100%;font:inherit;font-size:16px;color:var(--text);background:#0a1c2c;border:1px solid var(--line);border-radius:8px;padding:8px}
+input[type=checkbox],input[type=range]{width:auto}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 8px}
+.types{display:flex;gap:6px;flex-wrap:wrap}
+.types button{flex:1;min-width:64px;border:1px solid var(--line);background:var(--panel2);border-radius:8px;padding:8px 4px;font-size:13px}
+.types button.on{outline:3px solid var(--accent)}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--text);width:min(94vw,460px);max-height:88vh;padding:14px;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+.item{display:flex;gap:10px;align-items:center;padding:9px 4px;border-bottom:1px solid var(--line)}
+.item .ic{flex:none}
+.item .t{flex:1;min-width:0}
+.item .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .t span{font-size:12px;color:var(--sub)}
+.pin{width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.pin i{transform:rotate(45deg);font-style:normal;font-size:12px;font-weight:800;color:#111}
+.pin.mob{animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.3}}
+.me{width:22px;height:22px}
+.wind-ic{font-weight:800;font-size:11px;text-shadow:0 0 3px #000,0 0 3px #000;color:#fff;text-align:center;line-height:1}
+.wave-ic{font-weight:800;font-size:11px;border-radius:6px;padding:1px 3px;color:#111;text-align:center}
+#toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(90px + env(safe-area-inset-top));z-index:3000;background:#fff;color:#111;border-radius:10px;padding:10px 14px;font-weight:700;display:none;max-width:90vw;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+#toast.alert{background:var(--warn)}
+.leaflet-popup-content{font-size:13px;margin:10px 12px}
+.leaflet-popup-content .btn{margin:3px 2px 0 0;color:var(--text)}
+.leaflet-control-layers{font-size:13px}
+.leaflet-control-layers-expanded{max-height:60vh;overflow:auto}
+.chip{display:inline-block;padding:2px 8px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);font-size:12px;margin:2px}
+a{color:var(--accent)}
+.tide-svg text{fill:var(--sub);font-size:10px}
+</style>
+</head>
+<body>
+<div id="bar">
+  <div><div class="k">対地速力</div><div class="v" id="vSog">--<small> kn</small></div></div>
+  <div><div class="k">針路</div><div class="v" id="vCog">--<small>°</small></div></div>
+  <div><div class="k" id="kPos">現在地（GPS待ち）</div><div class="v" id="vPos" style="font-size:14px">--</div></div>
+  <div class="wide"><span>潮 <b id="vTide">--</b></span><span id="vShio">--</span><span>風 <b id="vWind">--</b></span><span>波 <b id="vWave">--</b></span></div>
+</div>
+<div id="map"></div>
+<div id="navBox"></div>
+<div id="timebar"><div class="row" style="justify-content:space-between"><span>予報の時刻 <b id="tbLabel">--</b></span><span id="tbSrc" class="note"></span></div><input type="range" id="tbRange" min="0" max="71" value="0"></div>
+<div class="fabs">
+  <button class="fab" id="fFollow" title="現在地に追従">追従</button>
+  <button class="fab rec" id="fRec" title="航跡記録">航跡</button>
+  <button class="fab" id="fAdd" title="地点を登録">地点<br>＋</button>
+  <button class="fab mob" id="fMob" title="落水（MOB）地点を記録">MOB</button>
+</div>
+<button id="catchBtn">🎣 釣れた！</button>
+
+<!-- 天気 -->
+<section class="sheet" id="sh-weather">
+  <h2>天気・波（<span id="wPlace">--</span>）</h2>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div><div class="note">出船の目安（設定のしきい値）</div><div class="big" id="wJudge">--</div></div>
+      <div class="row"><button class="btn sm" id="wUseMe">現在地</button><button class="btn sm" id="wUseCenter">地図の中心</button><button class="btn sm" id="wReload">更新</button></div>
+    </div>
+    <div class="note" id="wSun"></div>
+    <div class="note">予報は Open-Meteo（日本付近は気象庁モデルなど）の格子値です。沿岸の地形による吹き方の違いは出ません。<b>出船は気象庁の警報・注意報と自分の目で最終判断してください。</b></div>
+    <div class="row" style="margin-top:6px"><a class="btn sm" target="_blank" rel="noopener" href="https://www.jma.go.jp/bosai/warning/#area_type=class20s&area_code=0120500">室蘭市の警報・注意報</a><a class="btn sm" target="_blank" rel="noopener" href="https://www.jma.go.jp/bosai/map.html#contents=marine">海上警報・予報</a><a class="btn sm" target="_blank" rel="noopener" href="https://www.jma.go.jp/bosai/nowc/">雨雲・雷ナウキャスト</a></div>
+  </div>
+  <div class="card" style="padding:6px;overflow:auto;max-height:none"><table class="fc" id="wTable"><tr><td class="note">読み込み中…</td></tr></table></div>
+</section>
+
+<!-- 潮 -->
+<section class="sheet" id="sh-tide">
+  <h2>潮汐（室蘭）</h2>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <button class="btn sm" id="tPrev">◀ 前日</button>
+      <input type="date" id="tDate" style="width:auto">
+      <button class="btn sm" id="tNext">翌日 ▶</button>
+    </div>
+    <div class="row" style="margin-top:8px"><span class="big" id="tShio">--</span><span class="note" id="tMoon"></span></div>
+    <div id="tChart"></div>
+    <div id="tEvents" class="row"></div>
+    <div class="note" style="margin-top:6px">気象庁 潮位表「室蘭」（42°21'N 140°57'E）の推算値。潮位は潮位表基準面からの高さ（cm）。気圧や風で実際とずれます。潮名は月齢からの目安。</div>
+  </div>
+  <h3>この先7日</h3>
+  <div class="card" id="tWeek"></div>
+</section>
+
+<!-- 記録 -->
+<section class="sheet" id="sh-log">
+  <h2>記録・ポイント</h2>
+  <div class="card" id="lSummary"></div>
+  <div class="row" style="margin-bottom:8px">
+    <select id="lType" style="flex:1"><option value="">すべての種類</option></select>
+    <select id="lSpecies" style="flex:1"><option value="">すべての魚種</option></select>
+    <select id="lSort" style="flex:1"><option value="new">新しい順</option><option value="near">近い順</option></select>
+  </div>
+  <div class="card" id="lList" style="padding:0 8px"></div>
+  <h3>航跡</h3>
+  <div class="card" id="lTracks" style="padding:0 8px"></div>
+  <h3>バックアップ・取り込み</h3>
+  <div class="card">
+    <div class="note">記録はこのスマホのブラウザの中だけに保存されます（どこにも送信しません）。機種変更やブラウザのデータ消去に備えて、ときどき書き出してください。GPX は魚探・GPSプロッターとのやり取り用です。</div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="exJson">全データを書き出し</button>
+      <button class="btn" id="exGpx">地点をGPXで書き出し</button>
+      <label class="btn">ファイルを取り込む<input type="file" id="imFile" accept=".json,.gpx,application/json,application/gpx+xml" hidden></label>
+    </div>
+  </div>
+</section>
+
+<!-- 設定 -->
+<section class="sheet" id="sh-set">
+  <h2>設定</h2>
+  <div class="card">
+    <h3 style="margin-top:0">出船の目安（しきい値）</h3>
+    <div class="grid2">
+      <div><label class="f">風速 ◎ 以下 (m/s)</label><input type="number" step="0.5" id="sWindG"></div>
+      <div><label class="f">風速 △ 以下 (m/s)</label><input type="number" step="0.5" id="sWindY"></div>
+      <div><label class="f">波高 ◎ 以下 (m)</label><input type="number" step="0.1" id="sWaveG"></div>
+      <div><label class="f">波高 △ 以下 (m)</label><input type="number" step="0.1" id="sWaveY"></div>
+    </div>
+    <div class="note">風は「最大瞬間風速」ではなく平均風速で判定し、突風は表に別記します。</div>
+    <h3>表示</h3>
+    <label class="f">緯度経度の書き方</label>
+    <select id="sFmt"><option value="dm">度・分（42°18.123'）魚探と同じ</option><option value="dec">10進（42.30205）</option></select>
+    <label class="f">接近通知の距離 (m)</label><input type="number" id="sNear" step="10">
+    <label class="row" style="margin-top:10px"><input type="checkbox" id="sWake"> 画面を消さない（バッテリーを使います）</label>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">海しる（海上保安庁）のキー</h3>
+    <div class="note">等深線・魚礁・沈船・底質・定置網の区域は「海しる」から取得します。空欄のままなら公開されている試用キーを使います（予告なく止まることがあります）。止まったら、海上保安庁海洋情報部の<a target="_blank" rel="noopener" href="https://portal.msil.go.jp/howtouse">問い合わせフォーム</a>で個別キーを申請して、ここに入れてください。キーはこのスマホの中だけに保存されます。</div>
+    <input id="sMsilKey" placeholder="空欄＝試用キー" autocomplete="off" style="margin-top:6px">
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">オフライン用の地図</h3>
+    <div class="note">沖で電波が弱いときのため、室蘭近海（白老〜伊達・噴火湾東部）の地理院地図を前もって保存します。約<span id="pfCount">-</span>枚。Wi-Fiでどうぞ。一度見た地図も自動で保存されます。</div>
+    <div class="row" style="margin-top:8px"><button class="btn" id="pfStart">地図を保存する</button><span id="pfState" class="note"></span></div>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">大事なこと</h3>
+    <div class="note">このアプリは釣りの記録と目安を見るための道具で、<b>航海用の海図ではありません</b>。水深・暗礁・定置網などは、海上保安庁の海図（紙・電子海図）や漁協の情報で確かめてください。GPSは数m〜数十mずれることがあります。<br>
+    地図：国土地理院 / Esri Ocean（GEBCO等） / OpenSeaMap / OpenStreetMap。海洋情報：海しる（海上保安庁）※位置は概略、等深線は水深の格子データから作ったもの。気象：Open-Meteo。潮汐：気象庁 潮位表。</div>
+    <div class="row" style="margin-top:8px"><a class="btn sm" target="_blank" rel="noopener" href="https://www.msil.go.jp/msil/htm/topwindow.html">海しる（海上保安庁）</a><a class="btn sm" target="_blank" rel="noopener" href="https://www.data.jma.go.jp/kaiyou/db/tide/suisan/suisan.php?stn=A8">気象庁 潮位表 室蘭</a></div>
+  </div>
+</section>
+
+<dialog id="dlg">
+  <form method="dialog" id="pForm">
+    <h2 id="pTitle">地点</h2>
+    <div class="types" id="pTypes"></div>
+    <div id="pCatchFields">
+      <div class="grid2">
+        <div><label class="f">魚種</label><input id="pSpecies" list="speciesList" placeholder="例：ソイ"></div>
+        <div><label class="f">釣り方</label><input id="pMethod" list="methodList" placeholder="例：ジグ"></div>
+      </div>
+      <div class="grid3">
+        <div><label class="f">大きさ (cm)</label><input id="pSize" type="number" inputmode="decimal"></div>
+        <div><label class="f">数</label><input id="pCount" type="number" inputmode="numeric"></div>
+        <div><label class="f">タナ・水深 (m)</label><input id="pDepth" type="number" inputmode="decimal"></div>
+      </div>
+    </div>
+    <label class="f">名前</label><input id="pName" placeholder="例：地球岬沖の根">
+    <label class="f">位置（度分 or 10進。例 42 18.123 140 58.456）</label>
+    <div class="row"><input id="pPos" style="flex:1"><button type="button" class="btn sm" id="pHere">現在地</button></div>
+    <div class="grid2">
+      <div><label class="f">日時</label><input id="pTime" type="datetime-local"></div>
+      <div><label class="f">水深 (m)</label><input id="pBottom" type="number" inputmode="decimal" placeholder="魚探の値"></div>
+    </div>
+    <label class="f">メモ</label><textarea id="pMemo" rows="2" placeholder="底質・反応・仕掛けなど"></textarea>
+    <label class="row" style="margin-top:8px"><input type="checkbox" id="pAlert"> 近づいたら知らせる</label>
+    <div class="note" id="pCond" style="margin-top:6px;white-space:pre-line"></div>
+    <div class="row" style="margin-top:12px;justify-content:space-between">
+      <button type="button" class="btn danger" id="pDel">削除</button>
+      <div class="row"><button type="button" class="btn" id="pGo">ここへ向かう</button><button value="cancel" class="btn">閉じる</button><button type="button" class="btn pri" id="pSave">保存</button></div>
+    </div>
+  </form>
+</dialog>
+<datalist id="speciesList"></datalist>
+<datalist id="methodList"></datalist>
+<div id="toast"></div>
+<nav id="tabs"></nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="tide-data.js"></script>
+<script>
+'use strict';
+// ===== 基本 =====
+const $ = s => document.querySelector(s);
+const HOME = [42.30, 140.98];           // 室蘭沖
+const AREA = {s:42.10, n:42.52, w:140.62, e:141.30}; // 天気の格子・オフライン地図の範囲
+const TYPES = {
+  catch: {label:'釣果', ch:'魚', color:'var(--catch)', hex:'#ff8a3d'},
+  spot:  {label:'ポイント', ch:'P', color:'var(--spot)', hex:'#36cfc9'},
+  reef:  {label:'根・漁礁', ch:'根', color:'var(--reef)', hex:'#a77bff'},
+  danger:{label:'危険', ch:'!', color:'var(--danger)', hex:'#ff4d4f'},
+  mob:   {label:'MOB', ch:'人', color:'#ff0000', hex:'#ff0000'}
+};
+const DEF_SPECIES = ['ソイ','クロソイ','シマゾイ','マゾイ','アブラコ','ホッケ','カレイ','マガレイ','ババガレイ','ヒラメ','マダラ','スケトウダラ','サバ','ブリ','イナダ','サクラマス','カジカ','ソウハチ','イカ'];
+const DEF_METHODS = ['ジグ','ワーム','サビキ','胴突き','エサ釣り','タイラバ','流し釣り','かかり釣り'];
+
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem('mbt.'+k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem('mbt.'+k, JSON.stringify(v)); return true; }catch(e){ toast('保存できませんでした（容量不足かプライベートモード）'); return false; } }
+};
+let points = store.get('points', []);
+let tracks = store.get('tracks', []);
+const settings = Object.assign({windG:5, windY:8, waveG:0.8, waveY:1.5, fmt:'dm', near:60, wake:false}, store.get('settings', {}));
+
+function toast(msg, alert, ms){
+  const t = $('#toast'); t.textContent = msg; t.className = alert ? 'alert' : ''; t.style.display = 'block';
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.style.display = 'none', ms || 2600);
+}
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+const pad = n => String(n).padStart(2,'0');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const hm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const WD = '日月火水木金土';
+const fmtDT = t => { const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]}) ${hm(d)}`; };
+
+// ===== 座標 =====
+function fmtCoord(v, isLat){
+  if (settings.fmt === 'dec') return v.toFixed(5);
+  const a = Math.abs(v), d = Math.floor(a), m = (a - d) * 60;
+  return `${isLat ? (v>=0?'N':'S') : (v>=0?'E':'W')}${d}°${m.toFixed(3).padStart(6,'0')}'`;
+}
+const fmtLL = (lat, lon) => `${fmtCoord(lat,true)} ${fmtCoord(lon,false)}`;
+function parseLL(s){
+  const neg = /[SsＳ南]/.test(s.split(/[,\s]+/)[0] || '') ;
+  const n = (s.replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0)).match(/-?\d+(\.\d+)?/g) || []).map(Number);
+  let lat, lon;
+  if (n.length === 2){ [lat, lon] = n; }
+  else if (n.length === 4){ lat = n[0] + n[1]/60; lon = n[2] + n[3]/60; }
+  else if (n.length === 6){ lat = n[0] + n[1]/60 + n[2]/3600; lon = n[3] + n[4]/60 + n[5]/3600; }
+  else return null;
+  if (neg) lat = -lat;
+  if (!(Math.abs(lat) <= 90 && Math.abs(lon) <= 180)) return null;
+  return [lat, lon];
+}
+function distM(a, b){
+  const R = 6371000, r = Math.PI/180;
+  const dLa = (b[0]-a[0])*r, dLo = (b[1]-a[1])*r;
+  const h = Math.sin(dLa/2)**2 + Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function bearing(a, b){
+  const r = Math.PI/180, y = Math.sin((b[1]-a[1])*r)*Math.cos(b[0]*r);
+  const x = Math.cos(a[0]*r)*Math.sin(b[0]*r) - Math.sin(a[0]*r)*Math.cos(b[0]*r)*Math.cos((b[1]-a[1])*r);
+  return (Math.atan2(y, x)/r + 360) % 360;
+}
+const fmtDist = m => m < 1852 ? `${Math.round(m)} m` : `${(m/1852).toFixed(2)} 海里`;
+const DIR16 = ['北','北北東','北東','東北東','東','東南東','南東','南南東','南','南南西','南西','西南西','西','西北西','北西','北北西'];
+const dir16 = d => DIR16[Math.round(((d % 360) + 360) % 360 / 22.5) % 16];
+
+// ===== 月齢・潮名・日の出 =====
+function moonAge(d){
+  const ref = Date.UTC(2000,0,6,18,14), syn = 29.530588853;
+  return (((d - ref)/86400000) % syn + syn) % syn;
+}
+// 旧暦日の目安（月齢+1）→ 潮名
+const SHIO = ['','大潮','大潮','中潮','中潮','中潮','中潮','小潮','小潮','小潮','長潮','若潮','中潮','中潮','大潮','大潮','大潮','大潮','中潮','中潮','中潮','中潮','小潮','小潮','小潮','長潮','若潮','中潮','中潮','大潮','大潮'];
+function shioName(d){ const noon = new Date(d); noon.setHours(12,0,0,0); return SHIO[Math.min(30, Math.floor(moonAge(noon)) + 1)]; }
+function sunTimes(date, lat, lon){
+  // NOAA の近似式。日本時間で返す
+  const r = Math.PI/180, n = Math.ceil((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(2000,0,1,12))/86400000);
+  const Js = n - lon/360, M = (357.5291 + 0.98560028*Js) % 360;
+  const C = 1.9148*Math.sin(M*r) + 0.02*Math.sin(2*M*r) + 0.0003*Math.sin(3*M*r);
+  const L = (M + C + 180 + 102.9372) % 360;
+  const Jt = 2451545 + Js + 0.0053*Math.sin(M*r) - 0.0069*Math.sin(2*L*r);
+  const dec = Math.asin(Math.sin(L*r)*Math.sin(23.44*r));
+  const w = Math.acos((Math.sin(-0.833*r) - Math.sin(lat*r)*Math.sin(dec)) / (Math.cos(lat*r)*Math.cos(dec)))/r;
+  const toD = J => new Date((J - 2440587.5)*86400000);
+  return {rise: toD(Jt - w/360), set: toD(Jt + w/360)};
+}
+
+// ===== 潮汐（気象庁 潮位表 室蘭） =====
+const TIDE = window.TIDE_A8 || {};
+function tideAt(d){
+  const day = TIDE[ymd(d)]; if (!day) return null;
+  const h = d.getHours() + d.getMinutes()/60, i = Math.floor(h);
+  const nx = i < 23 ? day[0][i+1] : (TIDE[ymd(new Date(d.getTime()+86400000))] || day)[0][0];
+  const v = day[0][i] + (nx - day[0][i]) * (h - i);
+  return {cm: Math.round(v), up: nx > day[0][i]};
+}
+function nextTideEvent(d){
+  const out = [];
+  for (let k = 0; k < 2; k++){
+    const dd = new Date(d.getTime() + k*86400000), day = TIDE[ymd(dd)]; if (!day) continue;
+    day[1].forEach(e => out.push({t: new Date(`${ymd(dd)}T${e[0]}:00`), cm:e[1], hi:true}));
+    day[2].forEach(e => out.push({t: new Date(`${ymd(dd)}T${e[0]}:00`), cm:e[1], hi:false}));
+  }
+  return out.filter(e => e.t > d).sort((a,b) => a.t - b.t)[0];
+}
+
+// ===== 地図 =====
+const map = L.map('map', {zoomControl:false, attributionControl:true, center:HOME, zoom:11});
+L.control.zoom({position:'bottomleft'}).addTo(map);
+L.control.scale({imperial:false, position:'bottomleft'}).addTo(map);
+const gsi = (id, ext, max) => L.tileLayer(`https://cyberjapandata.gsi.go.jp/xyz/${id}/{z}/{x}/{y}.${ext}`, {maxZoom:18, maxNativeZoom:max, attribution:'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">国土地理院</a>'});
+const base = {
+  '地理院 淡色': gsi('pale','png',18),
+  '地理院 標準': gsi('std','png',18),
+  '地理院 写真': gsi('seamlessphoto','jpg',18),
+  '海底地形の目安 (Esri Ocean)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom:18, maxNativeZoom:13, attribution:'Esri, GEBCO, NOAA, Garmin ほか'}),
+  'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18, maxNativeZoom:19, attribution:'© OpenStreetMap contributors'})
+};
+const seamark = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {maxZoom:18, attribution:'© OpenSeaMap'});
+const gebco = L.tileLayer.wms('https://wms.gebco.net/mapserv?', {layers:'GEBCO_LATEST_2', format:'image/png', transparent:true, opacity:.45, attribution:'GEBCO'});
+const ptLayer = L.layerGroup().addTo(map);
+const trackLayer = L.layerGroup().addTo(map);
+const windLayer = L.layerGroup();
+const waveLayer = L.layerGroup();
+// ===== 海しる（海上保安庁）の海洋情報 =====
+const MSIL_TRIAL_KEY = '0e83ad5d93214e04abf37c970c32b641'; // 開発者ポータル掲載の試用キー（予告なく止まることがある）
+const msilKey = () => (settings.msilKey || '').trim() || MSIL_TRIAL_KEY;
+const MSIL_ATTR = '<a href="https://www.msil.go.jp/" target="_blank">海しる（海上保安庁）</a>';
+async function msilQuery(path, extra){
+  const q = `f=geojson&where=1%3D1&geometry=${AREA.w},${AREA.s},${AREA.e},${AREA.n}&geometryType=esriGeometryEnvelope&inSR=4326&outSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&returnGeometry=true${extra || ''}&subscription-key=${msilKey()}`;
+  const r = await fetch(`https://api.msil.go.jp/${path}/query?${q}`);
+  if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? 'キーが使えません' : 'HTTP ' + r.status);
+  return r.json();
+}
+const msilPop = (title, rows, ll) => `<b>${esc(title)}</b>${rows.filter(r => r[1]).map(r => `<div>${esc(r[0])}：${esc(r[1])}</div>`).join('')}<div class="note" style="color:#555">出典：海しる（海上保安庁）。概略の位置です。</div>` +
+  (ll ? `<button class="btn sm" data-msil-add="${ll[0]},${ll[1]}" data-name="${esc(title)}">ポイントとして登録</button>` : '');
+const dotIcon = (color, size, ch) => L.divIcon({className:'', iconSize:[size,size], iconAnchor:[size/2,size/2],
+  html:`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:1.5px solid #fff;box-shadow:0 0 2px #000;font-size:${size-6}px;line-height:${size-3}px;text-align:center;color:#fff;font-weight:800">${ch || ''}</div>`});
+const CONTOUR_COLOR = {20:'#40a9ff', 50:'#1d39c4', 100:'#10239e', 150:'#061178', 200:'#030852'};
+const SEABED = [['岩','#8c5a2b'],['石','#a0703c'],['礫','#c99b5f'],['砂','#e8c76a'],['泥','#7a7a6a'],['貝','#e8e8e8']];
+const MSIL_LAYERS = {
+  '等深線 20/50/100m（海しる）': {attr:true, async load(g){
+    const res = await Promise.all([10,11,12,13,14].map(i => msilQuery(`depth-contour/v2/MapServer/${i}`, '&outFields=Depth&maxAllowableOffset=0.0002&geometryPrecision=5')));
+    res.forEach(fc => L.geoJSON(fc, {interactive:true, style: f => ({color: CONTOUR_COLOR[f.properties.Depth] || '#000', weight: f.properties.Depth === 20 ? 1.6 : 1.3, opacity:.9}),
+      onEachFeature:(f, l) => l.bindTooltip(`${f.properties.Depth}m`, {sticky:true})}).addTo(g));
+  }},
+  '魚礁・海底障害物・沈船（海しる）': {attr:true, on:true, async load(g){
+    const [pt, poly, wr] = await Promise.all([msilQuery('seabed-obstruction/v2/MapServer/1'), msilQuery('seabed-obstruction/v2/MapServer/3'), msilQuery('wrecks/v2/MapServer/1')]);
+    L.geoJSON(poly, {style:{color:'#ff4d4f', weight:1.5, fillOpacity:.15, dashArray:'4 3'}, onEachFeature:(f, l) => l.bindPopup(msilPop(f.properties.field_001 || '海底障害物の区域', []))}).addTo(g);
+    pt.features.forEach(f => { const [lon, lat] = f.geometry.coordinates, k = f.properties.field_001 || '海底障害物';
+      L.marker([lat, lon], {icon: k === '魚礁' ? dotIcon('#13c2c2', 18, '礁') : dotIcon('#ff7a45', 16, '+')}).bindPopup(msilPop(k, [['位置', fmtLL(lat, lon)]], [lat, lon])).addTo(g); });
+    wr.features.forEach(f => { const [lon, lat] = f.geometry.coordinates;
+      L.marker([lat, lon], {icon: dotIcon('#595959', 18, '沈')}).bindPopup(msilPop('沈船', [['位置', fmtLL(lat, lon)]], [lat, lon])).addTo(g); });
+  }},
+  '底質 岩・石・砂・泥（海しる）': {attr:true, async load(g){
+    const paths = ['stone-rock','gravel','sand','mud-caly','shells'];
+    const res = await Promise.all(paths.map(p => msilQuery(`${p}/v2/MapServer/1`).catch(() => ({features:[]}))));
+    res.forEach(fc => fc.features.forEach(f => {
+      const [lon, lat] = f.geometry.coordinates, n = f.properties.nature || '';
+      const c = (SEABED.find(([k]) => n.includes(k)) || ['', '#999'])[1];
+      L.marker([lat, lon], {icon: dotIcon(c, 10)}).bindPopup(msilPop('底質', [['内容', n], ['位置', fmtLL(lat, lon)]])).addTo(g);
+    }));
+  }},
+  '定置網の区域（海しる）': {attr:true, on:true, async load(g){
+    const fc = await msilQuery('fixed-gear-fishery-right2024/v2/MapServer/3');
+    L.geoJSON(fc, {style:{color:'#cf1322', weight:2, fillColor:'#ff4d4f', fillOpacity:.25},
+      onEachFeature:(f, l) => { const p = f.properties; l.bindPopup(msilPop(`定置網 ${p['免許番号'] || ''}`, [['漁業', p['営む漁業種類']], ['時期', p['操業_養殖_時期']], ['場所', p['所在地']], ['注意', p['注意記事']]])); }}).addTo(g);
+  }},
+  '灯台（海しる）': {attr:true, async load(g){
+    const fc = await msilQuery('lights/lighthouse/v2/MapServer/1');
+    fc.features.forEach(f => { const [lon, lat] = f.geometry.coordinates;
+      L.marker([lat, lon], {icon: dotIcon('#fadb14', 14, '')}).bindPopup(msilPop(f.properties['名称'] || '灯台', [['位置', fmtLL(lat, lon)]])).addTo(g); });
+  }}
+};
+const msilGroups = {};
+Object.entries(MSIL_LAYERS).forEach(([name, def]) => {
+  const g = L.layerGroup(); g.options.attribution = MSIL_ATTR; msilGroups[name] = g; def.group = g;
+  g.on('add', async () => {
+    if (def.loaded || def.loading) return;
+    def.loading = true;
+    try{ await def.load(g); def.loaded = true; }
+    catch(e){ toast(`海しるのデータを取得できません（${e.message}）。設定のキーを確かめてください`); map.removeLayer(g); }
+    def.loading = false;
+  });
+});
+map.on('popupopen', e => {
+  const b = e.popup.getElement().querySelector('[data-msil-add]'); if (!b) return;
+  b.onclick = () => { const [la, lo] = b.dataset.msilAdd.split(',').map(Number); map.closePopup(); openPoint(null, {type:'reef', lat:la, lon:lo, name:b.dataset.name, memo:'海しるの位置（概略）'}); };
+});
+
+const overlays = Object.assign({'灯台・ブイ (OpenSeaMap)': seamark, '水深の色分け (GEBCO)': gebco}, msilGroups, {'風（矢印）': windLayer, '波の高さ': waveLayer, '登録地点': ptLayer, '航跡': trackLayer});
+let baseName = store.get('base', '地理院 淡色');
+(base[baseName] || base['地理院 淡色']).addTo(map);
+const shownOverlays = store.get('overlays', null) || ['灯台・ブイ (OpenSeaMap)', ...Object.keys(MSIL_LAYERS).filter(k => MSIL_LAYERS[k].on)];
+L.control.layers(base, overlays, {position:'topleft', collapsed:true}).addTo(map);
+map.on('baselayerchange', e => store.set('base', e.name));
+map.on('overlayadd overlayremove', e => {
+  if (e.name && !['風（矢印）','波の高さ','登録地点','航跡'].includes(e.name)) store.set('overlays', Object.keys(overlays).filter(k => map.hasLayer(overlays[k]) && !['風（矢印）','波の高さ','登録地点','航跡'].includes(k)));
+  $('#timebar').style.display = (map.hasLayer(windLayer) || map.hasLayer(waveLayer)) ? 'block' : 'none'; if (map.hasLayer(windLayer) || map.hasLayer(waveLayer)) loadGrid();
+});
+
+// ===== 地点 =====
+function pinIcon(p){
+  const t = TYPES[p.type] || TYPES.spot;
+  return L.divIcon({className:'', iconSize:[26,26], iconAnchor:[13,26], popupAnchor:[0,-24],
+    html:`<div class="pin ${p.type==='mob'?'mob':''}" style="background:${t.hex}"><i>${t.ch}</i></div>`});
+}
+function drawPoints(){
+  ptLayer.clearLayers();
+  points.forEach(p => {
+    const m = L.marker([p.lat, p.lon], {icon:pinIcon(p)}).addTo(ptLayer);
+    const label = p.type === 'catch' ? `${p.species || '釣果'}${p.size ? ' '+p.size+'cm' : ''}${p.count > 1 ? ' ×'+p.count : ''}` : (p.name || TYPES[p.type].label);
+    if (p.name || p.type === 'catch') m.bindTooltip(esc(label), {direction:'right', offset:[10,-14], className:'', permanent:false});
+    m.on('click', () => openPoint(p.id));
+  });
+  refreshLists();
+}
+function savePoints(){ store.set('points', points); drawPoints(); }
+
+// ===== GPS =====
+let me = null, meMarker = null, accCircle = null, follow = store.get('follow', true), lastFix = null, lastCog = null;
+const meIcon = cog => L.divIcon({className:'', iconSize:[30,30], iconAnchor:[15,15],
+  html:`<svg class="me" width="30" height="30" viewBox="0 0 30 30" style="transform:rotate(${cog ?? 0}deg)"><circle cx="15" cy="15" r="13" fill="rgba(63,184,255,.25)"/>${cog == null ? '<circle cx="15" cy="15" r="6" fill="#3fb8ff" stroke="#fff" stroke-width="2"/>' : '<path d="M15 3 L23 25 L15 20 L7 25 Z" fill="#3fb8ff" stroke="#fff" stroke-width="2"/>'}</svg>`});
+function onPos(pos){
+  const c = pos.coords, now = pos.timestamp || Date.now();
+  const ll = [c.latitude, c.longitude];
+  let sog = c.speed, cog = c.heading;
+  if (lastFix){
+    const dt = (now - lastFix.t)/1000, dm = distM(lastFix.ll, ll);
+    // 端末が速度を返さないときは位置の差から求め、GPSのぶれを和らげる
+    if (sog == null && dt >= 1) sog = (lastFix.sog ?? dm/dt)*0.6 + (dm/dt)*0.4;
+    if ((cog == null || isNaN(cog)) && dm > 8) cog = bearing(lastFix.ll, ll);
+  }
+  if (cog != null && !isNaN(cog) && (sog ?? 0) > 0.5) lastCog = cog;
+  if ((sog ?? 0) < 0.3) cog = null;
+  lastFix = {ll, t:now, sog};
+  me = {lat:ll[0], lon:ll[1], acc:c.accuracy, sog, t:now};
+  $('#vSog').innerHTML = `${sog == null ? '--' : (sog*1.94384).toFixed(1)}<small> kn</small>`;
+  $('#vCog').innerHTML = `${lastCog == null ? '--' : Math.round(lastCog)}<small>° ${lastCog == null ? '' : dir16(lastCog)}</small>`;
+  $('#kPos').textContent = `現在地 ±${Math.round(c.accuracy)}m`;
+  $('#vPos').textContent = fmtLL(ll[0], ll[1]);
+  if (!meMarker){ meMarker = L.marker(ll, {icon:meIcon(null), zIndexOffset:1000, interactive:false}).addTo(map); accCircle = L.circle(ll, {radius:c.accuracy, weight:1, color:'#3fb8ff', fillOpacity:.08, interactive:false}).addTo(map); if (follow) map.setView(ll, Math.max(map.getZoom(), 14)); }
+  meMarker.setLatLng(ll).setIcon(meIcon(lastCog)); accCircle.setLatLng(ll).setRadius(c.accuracy);
+  if (follow) map.panTo(ll, {animate:true});
+  recordTrack(ll, now);
+  updateNav();
+  checkNear();
+}
+function startGps(){
+  if (!navigator.geolocation){ toast('この端末では位置情報が使えません'); return; }
+  navigator.geolocation.watchPosition(onPos, e => {
+    $('#kPos').textContent = e.code === 1 ? '位置情報が許可されていません' : 'GPSを受信できません';
+  }, {enableHighAccuracy:true, maximumAge:2000, timeout:20000});
+}
+function setFollow(v){ follow = v; store.set('follow', v); $('#fFollow').classList.toggle('on', v); if (v && me) map.setView([me.lat, me.lon], Math.max(map.getZoom(), 14)); }
+$('#fFollow').onclick = () => setFollow(!follow);
+map.on('dragstart', () => { if (follow) setFollow(false); });
+
+// ===== 航跡 =====
+let rec = store.get('recActive', null); // {id,start,pts:[[lat,lon,t]]}
+let recLine = null;
+function recordTrack(ll, t){
+  if (!rec) return;
+  const last = rec.pts[rec.pts.length-1];
+  if (last && distM(last, ll) < 15 && t - last[2] < 60000) return;
+  rec.pts.push([+ll[0].toFixed(6), +ll[1].toFixed(6), t]);
+  if (!recLine) recLine = L.polyline([], {color:'#ff5a5a', weight:3}).addTo(trackLayer);
+  recLine.addLatLng(ll);
+  if (rec.pts.length % 5 === 0) store.set('recActive', rec);
+}
+function trackDist(pts){ let d = 0; for (let i = 1; i < pts.length; i++) d += distM(pts[i-1], pts[i]); return d; }
+$('#fRec').onclick = () => {
+  if (!rec){
+    rec = {id:uid(), start:Date.now(), pts:[]}; store.set('recActive', rec);
+    if (me) recordTrack([me.lat, me.lon], Date.now());
+    toast('航跡の記録を始めました');
+  } else {
+    if (!confirm('航跡の記録を終わりにしますか？')) return;
+    if (rec.pts.length > 1){ rec.end = Date.now(); rec.dist = trackDist(rec.pts); tracks.unshift(rec); store.set('tracks', tracks); toast(`航跡を保存しました（${fmtDist(rec.dist)}）`); }
+    else toast('記録が短すぎたので保存しませんでした');
+    rec = null; recLine = null; store.set('recActive', null); drawTracks();
+  }
+  $('#fRec').classList.toggle('on', !!rec);
+};
+const shownTracks = new Set(store.get('shownTracks', []));
+function drawTracks(){
+  trackLayer.clearLayers(); recLine = null;
+  tracks.forEach(tr => { if (shownTracks.has(tr.id)) L.polyline(tr.pts.map(p => [p[0], p[1]]), {color:'#ffd666', weight:3, opacity:.8}).addTo(trackLayer).bindTooltip(fmtDT(tr.start)); });
+  if (rec && rec.pts.length){ recLine = L.polyline(rec.pts.map(p => [p[0], p[1]]), {color:'#ff5a5a', weight:3}).addTo(trackLayer); }
+  refreshLists();
+}
+
+// ===== 地点の登録・編集 =====
+let editing = null, editType = 'catch';
+const dlg = $('#dlg');
+function toLocalInput(t){ const d = new Date(t); return `${ymd(d)}T${hm(d)}`; }
+function setType(t){
+  editType = t;
+  [...$('#pTypes').children].forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  $('#pCatchFields').style.display = t === 'catch' ? '' : 'none';
+}
+$('#pTypes').innerHTML = Object.entries(TYPES).filter(([k]) => k !== 'mob').map(([k,v]) => `<button type="button" data-t="${k}" style="border-left:6px solid ${v.hex}">${v.label}</button>`).join('');
+$('#pTypes').onclick = e => { const b = e.target.closest('button'); if (b) setType(b.dataset.t); };
+function condText(c){
+  if (!c) return '';
+  const a = [];
+  if (c.tide != null) a.push(`潮位 ${c.tide}cm ${c.tideUp ? '上げ' : '下げ'}`);
+  if (c.shio) a.push(c.shio);
+  if (c.wind != null) a.push(`風 ${dir16(c.windDir)} ${c.wind.toFixed(1)}m/s`);
+  if (c.wave != null) a.push(`波 ${c.wave.toFixed(1)}m`);
+  if (c.sst != null) a.push(`水温 ${c.sst.toFixed(1)}℃`);
+  if (c.temp != null) a.push(`気温 ${c.temp.toFixed(0)}℃`);
+  if (c.pres != null) a.push(`気圧 ${Math.round(c.pres)}hPa`);
+  return a.length ? 'そのときの状況：' + a.join(' / ') : '';
+}
+function openPoint(id, init){
+  const p = id ? points.find(x => x.id === id) : Object.assign({id:null, type:'catch', time:Date.now(), count:1}, init);
+  if (!p) return;
+  editing = p;
+  $('#pTitle').textContent = id ? '地点の編集' : '地点を登録';
+  setType(p.type === 'mob' ? 'danger' : p.type);
+  if (p.type === 'mob'){ editType = 'mob'; [...$('#pTypes').children].forEach(b => b.classList.remove('on')); }
+  $('#pSpecies').value = p.species || ''; $('#pMethod').value = p.method || '';
+  $('#pSize').value = p.size ?? ''; $('#pCount').value = p.count ?? ''; $('#pDepth').value = p.depth ?? '';
+  $('#pName').value = p.name || ''; $('#pMemo').value = p.memo || ''; $('#pBottom').value = p.bottom ?? '';
+  $('#pPos').value = p.lat != null ? `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}` : '';
+  $('#pPos').placeholder = '42 18.123 140 58.456';
+  $('#pTime').value = toLocalInput(p.time || Date.now());
+  $('#pAlert').checked = !!p.alert;
+  $('#pCond').textContent = condText(p.cond);
+  $('#pDel').style.display = id ? '' : 'none';
+  $('#pGo').style.display = id ? '' : 'none';
+  if (p.lat != null) $('#pCond').textContent += `\n位置：${fmtLL(p.lat, p.lon)}`;
+  dlg.showModal();
+}
+$('#pHere').onclick = () => { if (!me) return toast('まだGPSの位置がありません'); $('#pPos').value = `${me.lat.toFixed(6)}, ${me.lon.toFixed(6)}`; };
+$('#pSave').onclick = () => {
+  const ll = parseLL($('#pPos').value);
+  if (!ll) return toast('位置が読めません。例：42 18.123 140 58.456');
+  const num = id => { const v = $(id).value; return v === '' ? null : Number(v); };
+  const p = editing, isNew = !p.id;
+  Object.assign(p, {
+    type: editType, lat: ll[0], lon: ll[1], name: $('#pName').value.trim(), memo: $('#pMemo').value.trim(),
+    time: new Date($('#pTime').value).getTime() || Date.now(), bottom: num('#pBottom'), alert: $('#pAlert').checked
+  });
+  if (editType === 'catch') Object.assign(p, {species: $('#pSpecies').value.trim(), method: $('#pMethod').value.trim(), size: num('#pSize'), count: num('#pCount'), depth: num('#pDepth')});
+  if (isNew){ p.id = uid(); points.push(p); }
+  savePoints(); dlg.close();
+  toast(isNew ? '登録しました' : '保存しました');
+  if (isNew && p.type === 'catch' && !p.cond?.wind) fillCond(p);
+};
+$('#pDel').onclick = () => { if (!confirm('この地点を削除しますか？')) return; points = points.filter(x => x.id !== editing.id); if (navTarget && navTarget.id === editing.id) setNav(null); savePoints(); dlg.close(); };
+$('#pGo').onclick = () => { setNav(editing); dlg.close(); };
+
+function snapshotCond(t){
+  const d = new Date(t), td = tideAt(d);
+  return {tide: td?.cm ?? null, tideUp: td?.up, shio: shioName(d), moon: +moonAge(d).toFixed(1)};
+}
+async function fillCond(p){
+  // 釣れた瞬間の天気・波・水温を付ける（電波がなければ潮だけ）
+  try{
+    const q = `latitude=${p.lat.toFixed(3)}&longitude=${p.lon.toFixed(3)}&timezone=Asia%2FTokyo`;
+    const [w, m] = await Promise.all([
+      fetch(`https://api.open-meteo.com/v1/forecast?${q}&current=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms`).then(r => r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?${q}&current=wave_height,sea_surface_temperature`).then(r => r.json()).catch(() => ({}))
+    ]);
+    const c = p.cond || {};
+    Object.assign(c, {wind: w.current?.wind_speed_10m, windDir: w.current?.wind_direction_10m, temp: w.current?.temperature_2m, pres: w.current?.pressure_msl, wave: m.current?.wave_height, sst: m.current?.sea_surface_temperature});
+    const q2 = points.find(x => x.id === p.id); if (q2){ q2.cond = c; store.set('points', points); }
+  }catch(e){ /* 圏外 */ }
+}
+
+$('#catchBtn').onclick = () => {
+  const ll = me ? [me.lat, me.lon] : [map.getCenter().lat, map.getCenter().lng];
+  if (!me) toast('GPSがまだなので地図の中心で登録します');
+  const last = [...points].reverse().find(p => p.type === 'catch');
+  openPoint(null, {type:'catch', lat:ll[0], lon:ll[1], species: last?.species || '', method: last?.method || '', cond: snapshotCond(Date.now())});
+};
+$('#fAdd').onclick = () => {
+  const c = map.getCenter();
+  openPoint(null, {type:'spot', lat: me && follow ? me.lat : c.lat, lon: me && follow ? me.lon : c.lng});
+};
+$('#fMob').onclick = () => {
+  if (!me) return toast('GPSの位置がありません！', true);
+  const p = {id:uid(), type:'mob', name:'MOB 落水地点', lat:me.lat, lon:me.lon, time:Date.now(), alert:false};
+  points.push(p); savePoints(); setNav(p);
+  if (navigator.vibrate) navigator.vibrate([300,100,300]);
+  toast(`MOB 記録 ${hm(new Date())}　${fmtLL(p.lat, p.lon)}`, true, 6000);
+};
+
+// 地図の長押し（右クリック）でメニュー
+map.on('contextmenu', e => {
+  const ll = [e.latlng.lat, e.latlng.lng];
+  let html = `<div><b>${fmtLL(ll[0], ll[1])}</b></div>`;
+  if (me) html += `<div class="note" style="color:#555">ここまで ${fmtDist(distM([me.lat, me.lon], ll))}・${Math.round(bearing([me.lat, me.lon], ll))}°</div>`;
+  html += `<div><button class="btn sm" data-act="add">地点を登録</button><button class="btn sm" data-act="go">ここへ向かう</button><button class="btn sm" data-act="wx">ここの天気</button></div>`;
+  const pop = L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
+  pop.getElement().onclick = ev => {
+    const a = ev.target.dataset.act; if (!a) return;
+    map.closePopup();
+    if (a === 'add') openPoint(null, {type:'spot', lat:ll[0], lon:ll[1]});
+    if (a === 'go') setNav({id:null, name:'指定した地点', lat:ll[0], lon:ll[1]});
+    if (a === 'wx'){ wxAt = ll; showTab('weather'); loadPointWx(); }
+  };
+});
+
+// ===== ナビ（目的地まで） =====
+let navTarget = null, navLine = null;
+function setNav(p){
+  navTarget = p ? {id:p.id, name:p.name || p.species || TYPES[p.type]?.label || '目的地', lat:p.lat, lon:p.lon} : null;
+  if (navLine){ map.removeLayer(navLine); navLine = null; }
+  $('#navBox').style.display = navTarget ? 'block' : 'none';
+  updateNav();
+  if (navTarget && !me) map.setView([navTarget.lat, navTarget.lon], Math.max(map.getZoom(), 13));
+}
+function updateNav(){
+  if (!navTarget) return;
+  const t = [navTarget.lat, navTarget.lon];
+  if (!me){ $('#navBox').innerHTML = `→ ${esc(navTarget.name)}<br><span class="note">GPS待ち</span> <button class="btn sm" id="navX">×</button>`; }
+  else {
+    const here = [me.lat, me.lon], d = distM(here, t), b = bearing(here, t);
+    const kn = (me.sog ?? 0)*1.94384;
+    const eta = kn > 1 ? Math.round(d/1852/kn*60) + '分' : '--';
+    $('#navBox').innerHTML = `→ ${esc(navTarget.name)}<br><b>${fmtDist(d)}</b> 方位 <b>${Math.round(b)}°</b> ${dir16(b)}<br><span class="note">到着まで ${eta}</span> <button class="btn sm" id="navX">終了</button>`;
+    if (!navLine) navLine = L.polyline([here, t], {color:'#3fb8ff', weight:2, dashArray:'6 6', interactive:false}).addTo(map);
+    else navLine.setLatLngs([here, t]);
+  }
+  $('#navX').onclick = () => setNav(null);
+}
+
+// ===== 接近通知 =====
+const nearState = {};
+function checkNear(){
+  if (!me) return;
+  points.forEach(p => {
+    if (!p.alert && p.type !== 'danger') return;
+    const d = distM([me.lat, me.lon], [p.lat, p.lon]);
+    const r = p.type === 'danger' ? Math.max(settings.near, 100) : settings.near;
+    if (d < r && !nearState[p.id]){
+      nearState[p.id] = true;
+      if (navigator.vibrate) navigator.vibrate(p.type === 'danger' ? [400,150,400,150,400] : [200,100,200]);
+      toast(`${p.type === 'danger' ? '⚠ 危険地点' : '◎ 接近'}：${p.name || TYPES[p.type].label}（${Math.round(d)}m）`, true, 5000);
+    } else if (d > r*1.5) nearState[p.id] = false;
+  });
+}
+
+// ===== 天気（格子の風・波を地図に重ねる） =====
+let grid = null, gridAt = 0;
+function gridPoints(){
+  const a = [];
+  for (let la = AREA.s; la <= AREA.n + 1e-9; la += 0.084) for (let lo = AREA.w; lo <= AREA.e + 1e-9; lo += 0.113) a.push([+la.toFixed(3), +lo.toFixed(3)]);
+  return a;
+}
+let gridLoading = null;
+function loadGrid(force){
+  if (grid && !force && Date.now() - gridAt < 30*60000){ drawGrid(); return Promise.resolve(); }
+  if (!gridLoading) gridLoading = fetchGrid().finally(() => { gridLoading = null; });
+  return gridLoading;
+}
+async function fetchGrid(){
+  const pts = gridPoints(), lat = pts.map(p => p[0]).join(','), lon = pts.map(p => p[1]).join(',');
+  $('#tbSrc').textContent = '読み込み中…';
+  try{
+    const [w, m] = await Promise.all([
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=ms&timezone=Asia%2FTokyo&forecast_days=3`).then(r => r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction&timezone=Asia%2FTokyo&forecast_days=3`).then(r => r.json())
+    ]);
+    grid = {pts, w: [].concat(w), m: [].concat(m)}; gridAt = Date.now();
+    store.set('grid', {at:gridAt, grid});
+    $('#tbSrc').textContent = '';
+  }catch(e){
+    const c = store.get('grid', null);
+    if (c){ grid = c.grid; gridAt = c.at; $('#tbSrc').textContent = `圏外：${fmtDT(c.at)} の予報`; }
+    else { $('#tbSrc').textContent = '予報を取得できません'; return; }
+  }
+  const t0 = grid.w[0].hourly.time, now = new Date(); now.setMinutes(0,0,0);
+  const i0 = Math.max(0, t0.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`));
+  $('#tbRange').min = i0; $('#tbRange').max = t0.length - 1;
+  if (+$('#tbRange').value < i0) $('#tbRange').value = i0;
+  drawGrid(); updateBarWx();
+}
+const levelCls = (v, g, y) => v == null ? '' : v <= g ? 'g' : v <= y ? 'y' : 'r';
+const levelHex = c => ({g:'#3ddc84', y:'#ffc53d', r:'#ff5a5a'}[c] || '#ccc');
+function drawGrid(){
+  if (!grid) return;
+  const i = +$('#tbRange').value, t = grid.w[0].hourly.time[i];
+  if (!t) return;
+  const d = new Date(t);
+  $('#tbLabel').textContent = `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]}) ${pad(d.getHours())}時`;
+  windLayer.clearLayers(); waveLayer.clearLayers();
+  grid.pts.forEach((p, k) => {
+    const h = grid.w[k]?.hourly; if (!h) return;
+    const sp = h.wind_speed_10m[i], dir = h.wind_direction_10m[i], gu = h.wind_gusts_10m[i];
+    const col = levelHex(levelCls(sp, settings.windG, settings.windY));
+    L.marker(p, {interactive:false, icon:L.divIcon({className:'', iconSize:[40,44], iconAnchor:[20,22], html:
+      `<div class="wind-ic"><svg width="28" height="28" viewBox="0 0 28 28" style="transform:rotate(${dir + 180}deg)"><path d="M14 2 L21 14 L16 13 L16 26 L12 26 L12 13 L7 14 Z" fill="${col}" stroke="#000" stroke-width="1"/></svg><br>${sp.toFixed(0)}<span style="opacity:.8">(${gu.toFixed(0)})</span></div>`})}).addTo(windLayer);
+    const mh = grid.m[k]?.hourly, wh = mh?.wave_height?.[i];
+    if (wh != null) L.marker(p, {interactive:false, icon:L.divIcon({className:'', iconSize:[36,16], iconAnchor:[18,-24], html:
+      `<div class="wave-ic" style="background:${levelHex(levelCls(wh, settings.waveG, settings.waveY))}">${wh.toFixed(1)}m</div>`})}).addTo(waveLayer);
+  });
+}
+$('#tbRange').oninput = drawGrid;
+
+// ===== 天気（地点の時系列） =====
+let wxAt = null, wxData = null;
+function nearestGridIdx(ll){ let b = 0, bd = 1e18; grid.pts.forEach((p, k) => { const d = distM(p, ll); if (d < bd){ bd = d; b = k; } }); return b; }
+function updateBarWx(){
+  if (!grid) return;
+  const ll = me ? [me.lat, me.lon] : [map.getCenter().lat, map.getCenter().lng];
+  const k = nearestGridIdx(ll), now = new Date(); now.setMinutes(0,0,0);
+  const i = grid.w[k].hourly.time.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`); if (i < 0) return;
+  const h = grid.w[k].hourly, wh = grid.m[k]?.hourly?.wave_height?.[i];
+  $('#vWind').innerHTML = `<span class="${levelCls(h.wind_speed_10m[i], settings.windG, settings.windY)}">${dir16(h.wind_direction_10m[i])} ${h.wind_speed_10m[i].toFixed(1)}m/s</span>`;
+  $('#vWave').innerHTML = wh == null ? '--' : `<span class="${levelCls(wh, settings.waveG, settings.waveY)}">${wh.toFixed(1)}m</span>`;
+}
+const WMO = {0:'☀ 快晴',1:'🌤 晴れ',2:'⛅ 晴れ時々曇',3:'☁ 曇り',45:'🌫 霧',48:'🌫 霧',51:'🌦 霧雨',53:'🌦 霧雨',55:'🌦 霧雨',61:'🌧 小雨',63:'🌧 雨',65:'🌧 強い雨',66:'🌧 着氷性の雨',67:'🌧 着氷性の雨',71:'🌨 小雪',73:'🌨 雪',75:'🌨 大雪',77:'🌨 雪',80:'🌦 にわか雨',81:'🌦 にわか雨',82:'⛈ 激しいにわか雨',85:'🌨 にわか雪',86:'🌨 にわか雪',95:'⛈ 雷雨',96:'⛈ 雷雨',99:'⛈ 雷雨'};
+async function loadPointWx(force){
+  const ll = wxAt || (me ? [me.lat, me.lon] : [map.getCenter().lat, map.getCenter().lng]);
+  $('#wPlace').textContent = fmtLL(ll[0], ll[1]);
+  const key = 'wx';
+  try{
+    const q = `latitude=${ll[0].toFixed(3)}&longitude=${ll[1].toFixed(3)}&timezone=Asia%2FTokyo&forecast_days=3`;
+    const [w, m] = await Promise.all([
+      fetch(`https://api.open-meteo.com/v1/forecast?${q}&hourly=weather_code,temperature_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,visibility&daily=sunrise,sunset&wind_speed_unit=ms`).then(r => r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height,wave_period,wave_direction,swell_wave_height,sea_surface_temperature,ocean_current_velocity,ocean_current_direction`).then(r => r.json())
+    ]);
+    if (w.error) throw new Error(w.reason);
+    wxData = {ll, w, m, at:Date.now()}; store.set(key, wxData);
+  }catch(e){
+    const c = store.get(key, null);
+    if (!c){ $('#wTable').innerHTML = '<tr><td class="note">予報を取得できません（圏外？）</td></tr>'; return; }
+    wxData = c; toast(`圏外のため ${fmtDT(c.at)} の予報を表示`);
+  }
+  renderWx();
+}
+function renderWx(){
+  const {w, m} = wxData, h = w.hourly, mh = m.hourly || {};
+  const now = new Date(); now.setMinutes(0,0,0);
+  const i0 = Math.max(0, h.time.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`));
+  let rows = '', lastDay = '', worst = 'g';
+  const s = sunTimes(new Date(), wxData.ll[0], wxData.ll[1]);
+  $('#wSun').textContent = `日の出 ${hm(s.rise)}　日の入 ${hm(s.set)}`;
+  for (let i = i0; i < h.time.length; i++){
+    const d = new Date(h.time[i]), dk = ymd(d);
+    if (dk !== lastDay){ lastDay = dk; rows += `<tr class="day"><td colspan="9">${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})　${shioName(d)}</td></tr>`; }
+    const ws = h.wind_speed_10m[i], wd = h.wind_direction_10m[i], gu = h.wind_gusts_10m[i], wh = mh.wave_height?.[i];
+    const cw = levelCls(ws, settings.windG, settings.windY), cv = levelCls(wh, settings.waveG, settings.waveY);
+    const all = [cw, cv].includes('r') ? 'r' : [cw, cv].includes('y') ? 'y' : 'g';
+    if (i < i0 + 12){ if (all === 'r') worst = 'r'; else if (all === 'y' && worst !== 'r') worst = 'y'; }
+    const td = tideAt(d);
+    rows += `<tr><td>${pad(d.getHours())}</td><td><span class="dot ${all}"></span></td><td>${(WMO[h.weather_code[i]] || '').split(' ')[0]}</td>
+      <td class="${cw}"><span class="arrow" style="transform:rotate(${wd+180}deg)">↑</span>${ws.toFixed(1)}</td><td>${gu.toFixed(0)}</td>
+      <td class="${cv}">${wh == null ? '-' : wh.toFixed(1)}${mh.wave_period?.[i] ? `<span class="note">/${mh.wave_period[i].toFixed(0)}s</span>` : ''}</td>
+      <td>${h.precipitation[i] ? h.precipitation[i].toFixed(1) : ''}</td><td>${td ? td.cm + (td.up ? '↗' : '↘') : ''}</td><td>${mh.sea_surface_temperature?.[i]?.toFixed(1) ?? ''}</td></tr>`;
+  }
+  $('#wTable').innerHTML = `<tr><th>時</th><th>目安</th><th>天気</th><th>風m/s</th><th>突風</th><th>波m/周期</th><th>雨mm</th><th>潮cm</th><th>水温</th></tr>` + rows;
+  $('#wJudge').innerHTML = {g:'<span class="g">◎ 穏やか</span>', y:'<span class="y">△ 注意</span>', r:'<span class="r">× 厳しい</span>'}[worst] + '<span class="note"> この先12時間</span>';
+}
+$('#wUseMe').onclick = () => { if (!me) return toast('GPS待ちです'); wxAt = [me.lat, me.lon]; loadPointWx(); };
+$('#wUseCenter').onclick = () => { const c = map.getCenter(); wxAt = [c.lat, c.lng]; loadPointWx(); };
+$('#wReload').onclick = () => loadPointWx(true);
+
+// ===== 潮の画面 =====
+let tideDay = new Date();
+function renderTide(){
+  const d = new Date(tideDay); d.setHours(0,0,0,0);
+  $('#tDate').value = ymd(d);
+  const day = TIDE[ymd(d)];
+  if (!day){ $('#tChart').innerHTML = '<p class="note">この日の潮位表はありません（2026〜2027年分を収録）。</p>'; $('#tEvents').innerHTML = ''; $('#tShio').textContent = '--'; return; }
+  const next = TIDE[ymd(new Date(d.getTime() + 86400000))];
+  const vals = day[0].concat(next ? [next[0][0]] : [day[0][23]]);
+  const W = 360, H = 170, L0 = 26, T0 = 16, PW = W - L0 - 6, PH = H - T0 - 22;
+  const mn = -40, mx = 200, x = h => L0 + PW*h/24, y = v => T0 + PH*(1 - (v - mn)/(mx - mn));
+  const s = sunTimes(d, 42.35, 140.95), sh = t => t.getHours() + t.getMinutes()/60;
+  let svg = `<svg class="tide-svg" viewBox="0 0 ${W} ${H}" width="100%">`;
+  svg += `<rect x="${L0}" y="${T0}" width="${x(sh(s.rise)) - L0}" height="${PH}" fill="rgba(0,0,0,.35)"/><rect x="${x(sh(s.set))}" y="${T0}" width="${L0 + PW - x(sh(s.set))}" height="${PH}" fill="rgba(0,0,0,.35)"/>`;
+  for (let v = 0; v <= 200; v += 50) svg += `<line x1="${L0}" x2="${L0+PW}" y1="${y(v)}" y2="${y(v)}" stroke="#25506f"/><text x="${L0-3}" y="${y(v)+3}" text-anchor="end">${v}</text>`;
+  for (let hh = 0; hh <= 24; hh += 3) svg += `<text x="${x(hh)}" y="${H-6}" text-anchor="middle">${hh}</text>`;
+  // 滑らかな曲線（Catmull-Rom）
+  const P = vals.map((v, i) => [x(i), y(v)]);
+  let path = `M${P[0][0]},${P[0][1]}`;
+  for (let i = 0; i < P.length - 1; i++){
+    const p0 = P[i-1] || P[i], p1 = P[i], p2 = P[i+1], p3 = P[i+2] || p2;
+    path += ` C${p1[0] + (p2[0]-p0[0])/6},${p1[1] + (p2[1]-p0[1])/6} ${p2[0] - (p3[0]-p1[0])/6},${p2[1] - (p3[1]-p1[1])/6} ${p2[0]},${p2[1]}`;
+  }
+  svg += `<path d="${path} L${x(24)},${T0+PH} L${x(0)},${T0+PH} Z" fill="rgba(63,184,255,.18)"/><path d="${path}" fill="none" stroke="#3fb8ff" stroke-width="2.5"/>`;
+  const ev = day[1].map(e => [...e, true]).concat(day[2].map(e => [...e, false])).sort((a,b) => a[0] < b[0] ? -1 : 1);
+  ev.forEach(([t, cm, hi]) => { const [hh, mm] = t.split(':').map(Number), xx = x(hh + mm/60); svg += `<circle cx="${xx}" cy="${y(cm)}" r="3.5" fill="${hi ? '#ffc53d' : '#9db7cc'}"/><text x="${xx}" y="${y(cm) + (hi ? -7 : 14)}" text-anchor="middle" style="fill:#e8f1f8">${t}</text>`; });
+  const now = new Date();
+  if (ymd(now) === ymd(d)){ const xx = x(sh(now)); svg += `<line x1="${xx}" x2="${xx}" y1="${T0}" y2="${T0+PH}" stroke="#ff8a3d" stroke-width="2"/><text x="${xx+3}" y="${T0+10}" style="fill:#ff8a3d">今</text>`; }
+  $('#tChart').innerHTML = svg + '</svg>';
+  $('#tEvents').innerHTML = ev.map(([t, cm, hi]) => `<span class="chip">${hi ? '満潮' : '干潮'} ${t}　${cm}cm</span>`).join('') + `<span class="chip">日の出 ${hm(s.rise)}</span><span class="chip">日の入 ${hm(s.set)}</span>`;
+  $('#tShio').textContent = shioName(d);
+  $('#tMoon').textContent = `月齢 ${moonAge(new Date(d.getTime() + 12*3600000)).toFixed(1)}`;
+  let wk = '';
+  for (let k = 0; k < 7; k++){
+    const dd = new Date(); dd.setHours(12,0,0,0); dd.setDate(dd.getDate() + k);
+    const t = TIDE[ymd(dd)]; if (!t) continue;
+    const range = Math.max(...t[1].map(e => e[1])) - Math.min(...t[2].map(e => e[1]));
+    wk += `<div class="item" data-d="${ymd(dd)}"><div class="t"><b>${dd.getMonth()+1}/${dd.getDate()}(${WD[dd.getDay()]}) ${shioName(dd)}</b><span>満 ${t[1].map(e => e[0]).join(' / ')}　干 ${t[2].map(e => e[0]).join(' / ')}　潮差 ${range}cm</span></div></div>`;
+  }
+  $('#tWeek').innerHTML = wk;
+}
+$('#tWeek').onclick = e => { const it = e.target.closest('[data-d]'); if (it){ tideDay = new Date(it.dataset.d + 'T12:00'); renderTide(); $('#sh-tide').scrollTop = 0; } };
+$('#tPrev').onclick = () => { tideDay = new Date(tideDay.getTime() - 86400000); renderTide(); };
+$('#tNext').onclick = () => { tideDay = new Date(tideDay.getTime() + 86400000); renderTide(); };
+$('#tDate').onchange = e => { if (e.target.value){ tideDay = new Date(e.target.value + 'T12:00'); renderTide(); } };
+function updateBarTide(){
+  const now = new Date(), t = tideAt(now), n = nextTideEvent(now);
+  $('#vTide').textContent = t ? `${t.cm}cm ${t.up ? '上げ↗' : '下げ↘'}` : '--';
+  $('#vShio').textContent = `${shioName(now)}${n ? `・次の${n.hi ? '満潮' : '干潮'} ${hm(n.t)}` : ''}`;
+}
+
+// ===== 記録の一覧 =====
+$('#lType').innerHTML += Object.entries(TYPES).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join('');
+function refreshLists(){
+  const sp = [...new Set(points.filter(p => p.species).map(p => p.species))];
+  $('#speciesList').innerHTML = [...new Set(sp.concat(DEF_SPECIES))].map(s => `<option value="${esc(s)}">`).join('');
+  $('#methodList').innerHTML = [...new Set(points.filter(p => p.method).map(p => p.method).concat(DEF_METHODS))].map(s => `<option value="${esc(s)}">`).join('');
+  const cur = $('#lSpecies').value;
+  $('#lSpecies').innerHTML = '<option value="">すべての魚種</option>' + sp.map(s => `<option ${s === cur ? 'selected' : ''}>${esc(s)}</option>`).join('');
+  if (!$('#sh-log').classList.contains('show')) return;
+  const ft = $('#lType').value, fs = $('#lSpecies').value;
+  let list = points.filter(p => (!ft || p.type === ft) && (!fs || p.species === fs));
+  if ($('#lSort').value === 'near' && me) list.sort((a,b) => distM([me.lat, me.lon], [a.lat, a.lon]) - distM([me.lat, me.lon], [b.lat, b.lon]));
+  else list.sort((a,b) => (b.time || 0) - (a.time || 0));
+  $('#lList').innerHTML = list.length ? list.map(p => {
+    const t = TYPES[p.type] || TYPES.spot;
+    const title = p.type === 'catch' ? `${p.species || '魚種未入力'}${p.size ? ' '+p.size+'cm' : ''}${p.count > 1 ? ' ×'+p.count : ''}${p.name ? '（'+p.name+'）' : ''}` : (p.name || t.label);
+    const sub = [fmtDT(p.time), p.depth != null ? `タナ${p.depth}m` : '', p.bottom != null ? `水深${p.bottom}m` : '', p.cond?.shio || '', me ? 'ここから' + fmtDist(distM([me.lat, me.lon], [p.lat, p.lon])) : ''].filter(Boolean).join('・');
+    return `<div class="item" data-id="${p.id}"><div class="ic pin" style="background:${t.hex};width:22px;height:22px"><i>${t.ch}</i></div><div class="t"><b>${esc(title)}</b><span>${esc(sub)}</span></div><button class="btn sm" data-map="${p.id}">地図</button></div>`;
+  }).join('') : '<p class="note" style="padding:8px">まだ記録がありません。釣れたら下の「釣れた！」、気になる場所は「地点＋」や地図の長押しで登録します。</p>';
+  // まとめ
+  const catches = points.filter(p => p.type === 'catch');
+  const by = {}; catches.forEach(p => { const k = p.species || '不明'; by[k] = (by[k] || 0) + (p.count || 1); });
+  const top = Object.entries(by).sort((a,b) => b[1] - a[1]);
+  $('#lSummary').innerHTML = `<div class="row"><span class="chip">釣果 ${catches.length}件</span><span class="chip">ポイント ${points.filter(p => p.type === 'spot').length}</span><span class="chip">根・漁礁 ${points.filter(p => p.type === 'reef').length}</span><span class="chip">危険 ${points.filter(p => p.type === 'danger').length}</span></div>` +
+    (top.length ? `<div style="margin-top:6px">${top.map(([k, v]) => `<span class="chip">${esc(k)} ${v}匹</span>`).join('')}</div>` : '');
+  $('#lTracks').innerHTML = tracks.length ? tracks.map(tr => `<div class="item"><div class="t"><b>${fmtDT(tr.start)}〜${tr.end ? hm(new Date(tr.end)) : ''}</b><span>${fmtDist(tr.dist || 0)}・${tr.pts.length}点</span></div><label class="row note"><input type="checkbox" data-tr="${tr.id}" ${shownTracks.has(tr.id) ? 'checked' : ''}>表示</label><button class="btn sm" data-gpx="${tr.id}">GPX</button><button class="btn sm danger" data-trdel="${tr.id}">削除</button></div>`).join('') : '<p class="note" style="padding:8px">右の「航跡」で記録できます。</p>';
+}
+['#lType','#lSpecies','#lSort'].forEach(s => $(s).onchange = refreshLists);
+$('#lList').onclick = e => {
+  const m = e.target.dataset.map;
+  if (m){ const p = points.find(x => x.id === m); setFollow(false); showTab('map'); map.setView([p.lat, p.lon], 15); return; }
+  const it = e.target.closest('[data-id]'); if (it) openPoint(it.dataset.id);
+};
+$('#lTracks').onclick = e => {
+  const d = e.target.dataset;
+  if (d.tr){ e.target.checked ? shownTracks.add(d.tr) : shownTracks.delete(d.tr); store.set('shownTracks', [...shownTracks]); drawTracks(); }
+  if (d.gpx){ const tr = tracks.find(t => t.id === d.gpx); download(`航跡_${ymd(new Date(tr.start))}.gpx`, gpxTrack(tr), 'application/gpx+xml'); }
+  if (d.trdel && confirm('この航跡を削除しますか？')){ tracks = tracks.filter(t => t.id !== d.trdel); shownTracks.delete(d.trdel); store.set('tracks', tracks); drawTracks(); }
+};
+
+// ===== 書き出し・取り込み =====
+function download(name, text, type){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const xesc = s => String(s ?? '').replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+function gpxPoints(){
+  const w = points.map(p => {
+    const name = p.type === 'catch' ? `${p.species || '釣果'}${p.size ? ' '+p.size+'cm' : ''}` : (p.name || TYPES[p.type].label);
+    const desc = [p.name && p.type === 'catch' ? p.name : '', p.memo, p.depth != null ? `タナ${p.depth}m` : '', p.bottom != null ? `水深${p.bottom}m` : '', condText(p.cond)].filter(Boolean).join(' / ');
+    return `<wpt lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}"><time>${new Date(p.time).toISOString()}</time><name>${xesc(name)}</name><desc>${xesc(desc)}</desc><type>${p.type}</type></wpt>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="室蘭ボート釣りナビ" xmlns="http://www.topografix.com/GPX/1/1">\n${w}\n</gpx>`;
+}
+const gpxTrack = tr => `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="室蘭ボート釣りナビ" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${fmtDT(tr.start)}</name><trkseg>\n${tr.pts.map(p => `<trkpt lat="${p[0]}" lon="${p[1]}"><time>${new Date(p[2]).toISOString()}</time></trkpt>`).join('\n')}\n</trkseg></trk></gpx>`;
+$('#exGpx').onclick = () => download(`地点_${ymd(new Date())}.gpx`, gpxPoints(), 'application/gpx+xml');
+$('#exJson').onclick = () => download(`ボート釣り記録_${ymd(new Date())}.json`, JSON.stringify({app:'muroran-boat-tsuri', v:1, points, tracks, settings}, null, 1), 'application/json');
+$('#imFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const text = await f.text(); e.target.value = '';
+  let add = [], addTr = [];
+  try{
+    if (/^\s*[{[]/.test(text)){
+      const j = JSON.parse(text); add = j.points || []; addTr = j.tracks || [];
+    } else {
+      const x = new DOMParser().parseFromString(text, 'application/xml');
+      x.querySelectorAll('wpt').forEach(w => {
+        const g = n => w.getElementsByTagName(n)[0]?.textContent || '';
+        const ty = TYPES[g('type')] ? g('type') : 'spot';
+        add.push({id:uid(), type:ty, lat:+w.getAttribute('lat'), lon:+w.getAttribute('lon'), name:g('name'), memo:g('desc') || g('cmt'), time: g('time') ? Date.parse(g('time')) : Date.now(), species: ty === 'catch' ? g('name').replace(/\s*\d+cm$/, '') : undefined});
+      });
+      x.querySelectorAll('trk').forEach(t => {
+        const pts = [...t.getElementsByTagName('trkpt')].map(p => [+p.getAttribute('lat'), +p.getAttribute('lon'), Date.parse(p.getElementsByTagName('time')[0]?.textContent) || Date.now()]);
+        if (pts.length > 1) addTr.push({id:uid(), start:pts[0][2], end:pts[pts.length-1][2], pts, dist:trackDist(pts)});
+      });
+    }
+  }catch(err){ return toast('ファイルを読めませんでした'); }
+  const ids = new Set(points.map(p => p.id)), tids = new Set(tracks.map(t => t.id));
+  add = add.filter(p => p && isFinite(p.lat) && isFinite(p.lon) && !ids.has(p.id));
+  addTr = addTr.filter(t => t && t.pts && !tids.has(t.id));
+  if (!confirm(`地点 ${add.length}件・航跡 ${addTr.length}件を追加します（同じものは重複させません）。`)) return;
+  points = points.concat(add); tracks = tracks.concat(addTr); store.set('tracks', tracks); savePoints(); drawTracks();
+  toast('取り込みました');
+};
+
+// ===== 設定 =====
+const setMap = {sWindG:'windG', sWindY:'windY', sWaveG:'waveG', sWaveY:'waveY', sNear:'near'};
+Object.entries(setMap).forEach(([id, k]) => { $('#'+id).value = settings[k]; $('#'+id).onchange = e => { settings[k] = Number(e.target.value); store.set('settings', settings); drawGrid(); updateBarWx(); }; });
+$('#sMsilKey').value = settings.msilKey || '';
+$('#sMsilKey').onchange = e => {
+  settings.msilKey = e.target.value.trim(); store.set('settings', settings);
+  Object.values(MSIL_LAYERS).forEach(d => { d.loaded = false; d.group.clearLayers(); if (map.hasLayer(d.group)){ map.removeLayer(d.group); map.addLayer(d.group); } });
+  toast('キーを保存しました');
+};
+$('#sFmt').value = settings.fmt;
+$('#sFmt').onchange = e => { settings.fmt = e.target.value; store.set('settings', settings); if (me) $('#vPos').textContent = fmtLL(me.lat, me.lon); };
+let wakeLock = null;
+async function applyWake(){
+  try{
+    if (settings.wake && 'wakeLock' in navigator && document.visibilityState === 'visible') wakeLock = await navigator.wakeLock.request('screen');
+    else if (!settings.wake && wakeLock){ await wakeLock.release(); wakeLock = null; }
+  }catch(e){}
+}
+$('#sWake').checked = settings.wake;
+$('#sWake').onchange = e => { settings.wake = e.target.checked; store.set('settings', settings); applyWake(); };
+document.addEventListener('visibilitychange', applyWake);
+
+// オフライン地図の先読み（地理院 淡色 z10〜14）
+function tileList(){
+  const t = [], lon2x = (lo, z) => Math.floor((lo + 180)/360*2**z), lat2y = (la, z) => Math.floor((1 - Math.log(Math.tan(la*Math.PI/180) + 1/Math.cos(la*Math.PI/180))/Math.PI)/2*2**z);
+  for (let z = 10; z <= 14; z++) for (let x = lon2x(AREA.w, z); x <= lon2x(AREA.e, z); x++) for (let y = lat2y(AREA.n, z); y <= lat2y(AREA.s, z); y++) t.push(`https://cyberjapandata.gsi.go.jp/xyz/pale/${z}/${x}/${y}.png`);
+  return t;
+}
+$('#pfCount').textContent = tileList().length;
+$('#pfStart').onclick = async () => {
+  if (!('caches' in window)) return toast('このブラウザでは保存できません');
+  const list = tileList(), cache = await caches.open('mbt-tiles'); let done = 0, ng = 0;
+  $('#pfStart').disabled = true;
+  for (let i = 0; i < list.length; i += 6){
+    await Promise.all(list.slice(i, i + 6).map(async u => { try{ if (!(await cache.match(u))){ const r = await fetch(u, {mode:'cors'}); if (r.ok) await cache.put(u, r); else ng++; } }catch(e){ ng++; } done++; }));
+    $('#pfState').textContent = `${done} / ${list.length}`;
+  }
+  $('#pfState').textContent = `保存しました（${done - ng}枚${ng ? `、${ng}枚は失敗` : ''}）`; $('#pfStart').disabled = false;
+};
+
+// ===== タブ =====
+const TABS = [['map','🗺','地図'],['weather','🌬','天気'],['tide','🌊','潮'],['log','📒','記録'],['set','⚙','設定']];
+$('#tabs').innerHTML = TABS.map(([k, ic, l]) => `<button data-tab="${k}"><span>${ic}</span>${l}</button>`).join('');
+function showTab(k){
+  document.querySelectorAll('.sheet').forEach(s => s.classList.remove('show'));
+  [...$('#tabs').children].forEach(b => b.classList.toggle('on', b.dataset.tab === k));
+  const onMap = k === 'map';
+  ['#catchBtn', '.fabs'].forEach(s => $(s).style.display = onMap ? '' : 'none');
+  if (!onMap) $('#sh-' + k).classList.add('show');
+  if (k === 'weather' && !wxData) loadPointWx();
+  if (k === 'tide') renderTide();
+  if (k === 'log') refreshLists();
+  if (onMap) setTimeout(() => map.invalidateSize(), 50);
+}
+$('#tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); };
+
+// ===== 起動 =====
+$('#fFollow').classList.toggle('on', follow);
+$('#fRec').classList.toggle('on', !!rec);
+shownOverlays.forEach(k => { if (overlays[k]) map.addLayer(overlays[k]); });
+drawPoints(); drawTracks(); showTab('map');
+updateBarTide(); setInterval(updateBarTide, 60000);
+loadGrid(); setInterval(() => loadGrid(true), 60*60000);
+setInterval(updateBarWx, 5*60000);
+startGps(); applyWake();
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
