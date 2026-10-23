@@ -606,6 +606,15 @@ const GPS_STALE = 30; // 秒。これより古い位置は「最終受信位置�
 const gpsAge = () => me ? (Date.now() - me.t)/1000 : Infinity;
 const GPS_ROUGH = 100; // m。これ以上の誤差は「概略の位置」で、案内・記録の確かな位置には使わない
 const gpsFresh = () => gpsAge() <= GPS_STALE && !me?.suspect && me.acc < GPS_ROUGH; // 新しく、しかも計算に使える位置か
+function gpsState(){
+  if (!me) return {k:'none', text:'GPS未受信'};
+  const age = Math.round(gpsAge());
+  if (age > GPS_STALE) return {k:'stale', text:`GPS途絶（${age < 120 ? age + '秒' : Math.round(age/60) + '分'}前の最終受信位置）`};
+  if (me.suspect) return {k:'jump', text:'GPSの位置が飛んだため確認中（直前の確かな位置）'};
+  if (!(me.acc < GPS_ROUGH)) return {k:'rough', text:`GPS精度不足（誤差±${Math.round(me.acc)}m・概略の位置）`};
+  return {k:'ok', text:`GPS受信中 ±${Math.round(me.acc)}m`};
+}
+const hereLabel = () => { const k = gpsState().k; return k === 'ok' || k === 'none' ? '📍現在地' : k === 'rough' ? '📍概略の現在地' : '📍最終受信位置'; };
 const gpsRough = () => !!me && gpsAge() <= GPS_STALE && !me.suspect && !(me.acc < GPS_ROUGH);
 
 // ===== 座標 =====
@@ -1340,7 +1349,7 @@ function openPoint(id, init){
   if (p.lat != null) info += (info ? '\n' : '') + `位置：${fmtLL(p.lat, p.lon)}` + (me ? `（ここから ${fmtDist(distM([me.lat, me.lon], [p.lat, p.lon]))}）` : '');
   pPosInfo = {posSrc:p.posSrc, acc:p.acc, fixAt:p.fixAt};
   pOrig = {pos:$('#pPos').value, time:$('#pTime').value};
-  $('#pHere').textContent = !me || gpsFresh() ? '📍現在地' : '📍最終受信位置';
+  $('#pHere').textContent = hereLabel();
   if (posSrcText(p)) info += `\n位置の出所：${posSrcText(p)}`;
   $('#pCond').textContent = info;
   $('#pErr').style.display = 'none'; $('#pPosErr').style.display = 'none';
@@ -1352,7 +1361,7 @@ $('#pX').onclick = () => dlg.close();
 let pPosInfo = {}, pOrig = {}; // 開いた時の座標・日時の表示（表示の丸めで「動かした」と誤判定しないため）
 $('#pHere').onclick = () => {
   if (!me) return toast('まだGPSの位置がありません');
-  if (!gpsFresh() && !confirm(`GPSの最後の受信は ${Math.round(gpsAge())}秒前です。その時の位置を使いますか？`)) return;
+  if (!gpsFresh() && !confirm(`${gpsState().text}です。この位置を使いますか？`)) return;
   $('#pPos').value = `${me.lat.toFixed(6)}, ${me.lon.toFixed(6)}`; pPosInfo = posInfo();
 };
 $('#pPos').addEventListener('input', () => { pPosInfo = {posSrc:'手入力'}; });
@@ -1431,7 +1440,7 @@ function speciesRank(){
 }
 function openCatch(){
   qcCount = 1; $('#qcCount').textContent = 1;
-  const where = !me ? '⚠ GPSがないので地図の中心の位置で記録します' : gpsFresh() ? `📍 現在地 ${fmtLL(me.lat, me.lon)}` : `⚠ GPS途絶。${Math.round(gpsAge())}秒前の最終受信位置で記録します`;
+  const where = !me ? '⚠ GPSがないので地図の中心の位置で記録します' : gpsFresh() ? `📍 現在地 ${fmtLL(me.lat, me.lon)}` : `⚠ ${gpsState().text}で記録します`;
   const st = tideStage(new Date());
   $('#qcInfo').textContent = `${where}　${hm(new Date())}${st ? '・' + st.label : ''}`;
   const today = points.filter(p => p.type === 'catch' && !p.timeUnknown && ymd(new Date(p.time)) === ymd(new Date()));
@@ -1498,7 +1507,7 @@ function renderMob(){
   else { const h = [me.lat, me.lon], d = distM(h, [m.lat, m.lon]), b = bearing(h, [m.lat, m.lon]); setText('mobRel', `落水地点まで ${fmtDist(d)}・${Math.round(b)}° ${dir16(b)}${me.acc > 20 ? `（GPS誤差±${Math.round(me.acc)}m）` : ''}`); }
   setText('mobSave', m.saved === false ? '⚠ 端末への保存に失敗。画面上だけの記録です' : '');
   $('#mobGo').style.display = m.lat == null ? 'none' : '';
-  $('#mobPick').style.display = m.lat == null || m.stale || m.manual ? '' : 'none';
+  $('#mobPick').style.display = ''; // 誤差が大きい・古い位置のときに直せるよう、対応中はいつも出す
   document.documentElement.style.setProperty('--mobH', el.offsetHeight + 'px');
 }
 setInterval(() => { if (activeMob) renderMob(); }, 3000);
@@ -1541,7 +1550,7 @@ map.on('contextmenu', e => {
 // ===== ナビ（目的地まで） =====
 let navTarget = null, navLine = null;
 function setNav(p){
-  navTarget = p ? {id:p.id, name:p.name || pointTitle(p), lat:p.lat, lon:p.lon, home:!!p.home, thenHome:!!p.thenHome} : null;
+  navTarget = p ? {id:p.id, name:p.name || pointTitle(p), lat:p.lat, lon:p.lon, home:!!p.home, thenHome:!!p.thenHome, inner:!!p.inner} : null;
   if (navLine){ map.removeLayer(navLine); navLine = null; }
   $('#navBox').innerHTML = '';
   $('#navBox').style.display = navTarget ? 'block' : 'none';
@@ -1573,7 +1582,7 @@ function updateNav(){
     let eta, mins = null;
     if (stale) eta = '<span class="st-bad">GPS途絶中（最終受信位置から）</span>';
     else if (vmg > 1){ mins = d/1852/vmg*60; eta = `今の速さで ${fmtDur(mins)}（${hm(new Date(Date.now() + mins*60000))}着）`; }
-    else if (navTarget.home){ mins = d/1852/settings.cruise*60; eta = `巡航${settings.cruise}ktで ${fmtDur(mins)}`; }
+    else if (navTarget.home){ const kt = navTarget.inner ? (settings.harbor || 5) : settings.cruise; mins = d/1852/kt*60; eta = `${navTarget.inner ? '港内' : '巡航'}${kt}ktで ${fmtDur(mins)}（${hm(new Date(Date.now() + mins*60000))}着）`; }
     else eta = kn > 1.5 ? '目的地へ近づいていません' : '走り出すと到着時刻を表示';
     let total = mins;
     if (navTarget.thenHome && settings.home){
@@ -1599,7 +1608,7 @@ function updateNav(){
   if (!$('#navX')){
     $('#navBox').innerHTML = `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><div style="flex:1;min-width:0" id="navBody"></div><button class="x" id="navX" aria-label="案内を終わる">✕</button></div>${navTarget.thenHome ? '<button class="btn sm wide" id="navGate" style="margin-top:4px">港口を通過した → 母港へ</button>' : ''}`;
     $('#navX').onclick = () => setNav(null);
-    if ($('#navGate')) $('#navGate').onclick = () => setNav(Object.assign({home:true}, settings.home));
+    if ($('#navGate')) $('#navGate').onclick = () => setNav(Object.assign({home:true, inner:true}, settings.home));
   }
   setText('navBody', body);
 }
@@ -1616,24 +1625,25 @@ $('#fHome').onclick = () => {
 // ===== 接近通知（自分の地点・危険地点・定置網） =====
 const nearState = {};
 function checkNear(){
-  if (!me) return;
-  const here = [me.lat, me.lon];
+  const gs = gpsState(); if (gs.k !== 'ok' && gs.k !== 'rough') return;
+  const here = [me.lat, me.lon], rough = gs.k === 'rough', acc = Math.round(me.acc);
   points.forEach(p => {
     if (!p.alert && p.type !== 'danger') return;
     const d = distM(here, [p.lat, p.lon]);
     const r = p.type === 'danger' ? Math.max(settings.near, 100) : settings.near;
-    if (d < r && !nearState[p.id]){
+    const near = rough ? d - acc < r : d < r; // 精度不足なら、誤差の円が届く範囲は「近い可能性」
+    if (near && !nearState[p.id]){
       nearState[p.id] = true;
       buzz(p.type === 'danger' ? [400,150,400,150,400] : [200,100,200]); if (p.type === 'danger') beep();
-      toast(`${p.type === 'danger' ? '⚠ 危険地点' : '◎ ポイント接近'}：${pointTitle(p)}（${Math.round(d)}m）`, true, 6000);
-    } else if (d > r*1.5) nearState[p.id] = false;
+      toast(rough ? `${p.type === 'danger' ? '⚠ 危険地点' : '◎ ポイント'}「${pointTitle(p)}」に近い可能性（GPS精度不足 ±${acc}m・距離は不確か）` : `${p.type === 'danger' ? '⚠ 危険地点' : '◎ ポイント接近'}：${pointTitle(p)}（${Math.round(d)}m）`, true, 6000);
+    } else if ((rough ? d - acc : d) > r*1.5) nearState[p.id] = false;
   });
   // 定置網：区域の150m手前で知らせる（区域は概略）
   fixedNets.forEach((n, i) => {
     const k = 'net' + i, dist = polyDist(here, n.rings), inside = dist === 0;
-    const near = inside || dist < 150;
-    if (near && !nearState[k]){ nearState[k] = true; buzz([400,150,400]); beep(); toast(`⚠ 定置網の区域に接近（${n.name}・${n.season}）。網とロープに注意`, true, 7000); }
-    else if (!near && dist > 400) nearState[k] = false;
+    const near = inside || (rough ? dist - acc < 150 : dist < 150);
+    if (near && !nearState[k]){ nearState[k] = true; buzz([400,150,400]); beep(); toast(rough ? `⚠ 定置網の区域（${n.name}）に近い可能性（GPS精度不足 ±${acc}m）。網とロープに注意` : `⚠ 定置網の区域に接近（${n.name}・${n.season}）。網とロープに注意`, true, 7000); }
+    else if (!near && (rough ? dist - acc : dist) > 400) nearState[k] = false;
   });
 }
 
@@ -1690,6 +1700,13 @@ async function fetchGrid(){
 }
 const levelCls = (v, g, y) => v == null ? '' : v <= g ? 'g' : v <= y ? 'y' : 'r';
 const levelHex = c => ({g:'#3ddc84', y:'#ffc53d', r:'#ff5a5a'}[c] || '#ccc');
+// 表示中の海しるの印（魚礁・沈船など）の位置。予報の印で隠さないため
+function msilPts(){
+  const out = [];
+  const walk = l => { if (out.length > 400) return; if (l.getLatLng) out.push([l.getLatLng().lat, l.getLatLng().lng]); else l.eachLayer?.(walk); };
+  try{ OVER.forEach(o => { if (o.msil && o.layer && map.hasLayer(o.layer)) walk(o.layer); }); }catch(e){}
+  return out.slice(0, 400);
+}
 function drawGrid(){
   if (!grid) return;
   const i = +$('#tbRange').value, t = grid.w[0].hourly.time[i];
@@ -1698,14 +1715,16 @@ function drawGrid(){
   if (expired){ windLayer.clearLayers(); waveLayer.clearLayers(); $('#tbLabel').textContent = '予報が古いため表示しません'; return; }
   $('#tbLabel').textContent = `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]}) ${pad(d.getHours())}時`;
   windLayer.clearLayers(); waveLayer.clearLayers();
-  const drawn = [], sz = map.getSize();
+  const drawn = [], sz = map.getSize(), fb = document.querySelector('.fabs')?.getBoundingClientRect(), fabW = fb && fb.width ? sz.x - fb.left + 20 : 0;
   // 自船・案内先・登録地点の印を隠さないよう、その近く（40px）には予報の印を置かない
-  const keep = [me && [me.lat, me.lon], navTarget && [navTarget.lat, navTarget.lon], ...points.map(q => [q.lat, q.lon])].filter(Boolean).map(ll => map.latLngToContainerPoint(ll)).filter(c => c.x > -50 && c.y > -50 && c.x < sz.x + 50 && c.y < sz.y + 50);
+  const keep = [me && [me.lat, me.lon], navTarget && [navTarget.lat, navTarget.lon], ...points.map(q => [q.lat, q.lon]), ...msilPts()].filter(Boolean).map(ll => map.latLngToContainerPoint(ll)).filter(c => c.x > -50 && c.y > -50 && c.x < sz.x + 50 && c.y < sz.y + 50);
   grid.pts.forEach((p, k) => {
     const h = grid.w[k]?.hourly; if (!h) return;
     const c = map.latLngToContainerPoint(p);
-    if (drawn.some(q => q.distanceTo(c) < 70)) return; // 広く見ている時は間引く
-    if (keep.some(q => q.distanceTo(c) < 40)) return;
+    // 風の印（上）と波高（下）を合わせた縦長の範囲で、ほかの予報の印・自船・地点と重ならないようにする
+    if (drawn.some(q => Math.abs(q.x - c.x) < 60 && Math.abs(q.y - c.y) < 84)) return;
+    if (keep.some(q => Math.abs(q.x - c.x) < 34 && q.y - c.y > -40 && q.y - c.y < 70)) return;
+    if (c.x > sz.x - fabW) return; // 右のボタン列の下には置かない
     drawn.push(c);
     const sp = h.wind_speed_10m[i], dir = h.wind_direction_10m[i], gu = h.wind_gusts_10m[i];
     if (sp == null || dir == null) return;
@@ -1859,6 +1878,8 @@ $('#wReload').onclick = () => loadPointWx();
 
 // ===== 潮の画面 =====
 let tideDay = new Date();
+setInterval(() => { if (curTab === 'tide' && ymd(new Date(tideDay)) === ymd(new Date()) && !document.hidden) renderTide(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && curTab === 'tide' && ymd(new Date(tideDay)) === ymd(new Date())) renderTide(); });
 function renderTide(){
   const d = new Date(tideDay); d.setHours(0,0,0,0);
   $('#tDate').value = ymd(d);
@@ -2278,7 +2299,7 @@ function renderReady(){
     [!!settings.home, settings.home ? `母港：${settings.home.name}` : '母港が未登録', 'set'],
     [!!settings.gate, settings.gate ? '港口：登録済み' : '港口が未登録（帰港は母港へ直線）', 'set'],
     [!!st && st.ok === st.total, !st ? '圏外用の地図を保存していません' : st.ok === st.total ? `圏外用の地図：保存済み（${fmtDT(st.at)} 確認）` : `圏外用の地図：一部だけ（${st.ok}/${st.total}枚）`, 'set'],
-    [gpsFresh() && me.acc < 30, !me ? 'GPS：まだ受信していません' : gpsFresh() ? `GPS：受信中 ±${Math.round(me.acc)}m` : `GPS：${Math.round(gpsAge())}秒前から途絶`, null],
+    [gpsFresh() && me.acc < 30, !me ? 'GPS：まだ受信していません' : gpsState().text, null],
     [!settings.sound || audioReady(), !settings.sound ? '警報音：鳴らさない設定（振動のみ）' : audioReady() ? '警報音：準備済み' : '警報音：まだ有効になっていません（画面をタップ）', null],
     [wakeState === 'on', wakeText().replace(/<[^>]+>/g, ''), 'set']
   ];
@@ -2394,7 +2415,7 @@ function startPick(title, cb, at){
   if (at) map.setView([at.lat, at.lon], Math.max(map.getZoom(), 15)); else if (me) map.setView([me.lat, me.lon], Math.max(map.getZoom(), 15));
   pickCb = cb; $('#pickTitle').textContent = title; document.body.classList.add('picking');
   // GPSが途絶えていたら「現在地」ではなく「最終受信位置」と書く
-  $('#pickMe').textContent = !me || gpsFresh() ? '📍現在地' : `📍最終受信（${Math.round(gpsAge())}秒前）`;
+  $('#pickMe').textContent = hereLabel();
 }
 function endPick(){ document.body.classList.remove('picking'); pickCb = null; layoutDock(); }
 $('#pickOk').onclick = () => { const c = map.getCenter(), cb = pickCb, back = pickBack; endPick(); cb && cb([c.lat, c.lng]); if (back && back !== 'map') showTab(back); };
