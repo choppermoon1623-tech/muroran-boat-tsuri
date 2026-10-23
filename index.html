@@ -27,6 +27,8 @@ body.night .leaflet-marker-pane,body.night .leaflet-overlay-pane{filter:sepia(1)
 body.night .fab.on,body.night .seg button.on,body.night .btn.pri,body.night .baseGrid button.on,body.night .types button.on{background:#3a0000;color:#ff9a9a;border:2px solid #ff6060}
 body.night #catchBtn{background:#3a0000;color:#ff9a9a;border:2px solid #ff6060}
 body.night #toast{background:#1a0000;color:#ff9a9a;border:1px solid #ff4040}
+.aheadTag{background:#3fb8ff;color:#06263d;font-weight:900;font-size:13px;border:2px solid #fff;border-radius:12px;text-align:center;line-height:20px;white-space:nowrap}
+body.night .aheadTag{background:#600;color:#ffb0b0;border-color:#f44}
 .alarmBtn{background:#fff!important;color:#b00000!important}
 body.night .alarmBtn,body.night #mobPanel a.btn{background:#3a0000!important;color:#ffb0b0!important;border-color:#ff4040!important}
 body.night #toast .btn{background:#300;color:#ff9a9a;border-color:#ff4040}
@@ -1166,7 +1168,7 @@ function updateMode(){
       if (v && !v.unsure && !v.still && gpsFresh()){
         const sec = settings.ahead || 120, m2 = v.kn*0.5144*sec, br = v.dir*Math.PI/180, f = [me.lat + m2*Math.cos(br)/111320, me.lon + m2*Math.sin(br)/(111320*Math.cos(me.lat*Math.PI/180))];
         L.polyline([[me.lat, me.lon], f], {color:'#3fb8ff', weight:2, dashArray:'4 6', interactive:false}).addTo(modeLayer);
-        L.marker(f, {icon:dotIcon('#3fb8ff', 20, sec < 60 ? '30秒' : (sec/60) + '分'), interactive:false}).addTo(modeLayer);
+        L.marker(f, {interactive:false, icon:L.divIcon({className:'', iconSize:[56,24], iconAnchor:[28,12], html:`<div class="aheadTag">${sec < 60 ? '30秒' : sec/60 + '分'}後</div>`})}).addTo(modeLayer);
       }
     }
     // 前の釣行で釣れた流し（近く3km以内）はオレンジの点線で
