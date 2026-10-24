@@ -48,6 +48,7 @@ a{color:var(--accent)}
 #bar .ig{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:1px;background:var(--line)}
 #bar .ig>div{background:var(--bg);padding:3px 8px 4px;min-width:0}
 #bar .k{font-size:13px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bar .k.two{line-height:1.15;font-size:14px}
 #bar .v{font-size:24px;font-weight:800;line-height:1.1;white-space:nowrap;font-variant-numeric:tabular-nums}
 #bar .v small{font-size:12px;font-weight:600;color:var(--sub)}
 #bar .pos{font-size:13px;font-weight:700;line-height:1.25;font-variant-numeric:tabular-nums}
@@ -331,13 +332,15 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
   </div>
   <div class="card" id="lList" style="padding:0 10px"></div>
   <div class="row" style="margin:-4px 0 8px"><button class="btn sm" id="lTripBreak" style="flex:1">✂ ここから新しい釣行にする</button></div>
-  <details class="card" id="lTripBox"><summary style="font-weight:800;min-height:44px;display:flex;align-items:center">🚤 釣行ごとの振り返り（釣れなかった日も）</summary><div id="lTrips"></div></details>
-  <details class="card" id="lTrendBox"><summary style="font-weight:800;min-height:40px;display:flex;align-items:center">📊 記録された釣果の内訳（潮・時間帯・潮名）</summary><div id="lTrend"></div></details>
+  <details class="card" id="lTripBox"><summary style="font-weight:800;min-height:44px;display:flex;align-items:center">🚤 釣行ごとの振り返り（釣れなかった日も）</summary><div id="lTrips"></div><button class="btn sm lBack" style="margin-top:6px">▲ 一覧・検索へ戻る</button></details>
+  <details class="card" id="lTrendBox"><summary style="font-weight:800;min-height:40px;display:flex;align-items:center">📊 記録された釣果の内訳（潮・時間帯・潮名）</summary><div id="lTrend"></div><button class="btn sm lBack" style="margin-top:6px">▲ 一覧・検索へ戻る</button></details>
   <h3>流しの記録（前に釣れた筋を探す）</h3>
   <div class="note" id="lLogCap" style="margin:-4px 0 6px;font-size:14px"></div>
   <div class="card" id="lDrifts" style="padding:0 10px"></div>
+  <button class="btn sm lBack" style="margin:-4px 0 10px">▲ 一覧・検索へ戻る</button>
   <h3>航跡</h3>
   <div class="card" id="lTracks" style="padding:0 10px"></div>
+  <button class="btn sm lBack" style="margin:-4px 0 10px">▲ 一覧・検索へ戻る</button>
   <h3>バックアップ・取り込み</h3>
   <div class="card">
     <div class="note">記録はこのスマホのブラウザの中だけに保存されます（記録そのものはどこにも送りません）。ただし予報や釣れた時の風・波を取るときは、その場所の緯度経度を気象サービス（Open-Meteo）に送ります。機種変更やブラウザのデータ消去に備えて、ときどき「全データを書き出し」で保存してください。GPX は魚探・GPSプロッターとのやり取り用です。</div>
@@ -969,9 +972,9 @@ function renderInstruments(){
   $('#vCog').innerHTML = `${cg == null ? '--' : Math.round(cg)}<small>° ${cg == null ? '' : dir16(cg)}</small>`;
   if (meMarker && cg == null) meMarker.setIcon(meIcon(null));
   const k = $('#kPos');
-  if (me.suspect && age <= GPS_STALE){ k.innerHTML = '<span class="st-warn">⚠ 位置確認中（飛び）</span>'; }
-  else if (stale){ k.innerHTML = `<span class="st-bad">⚠ GPS途絶・${age < 120 ? Math.round(age) + '秒' : Math.round(age/60) + '分'}前の位置</span>`; }
-  else k.innerHTML = `<span class="${me.acc < 20 ? 'st-ok' : me.acc < 60 ? 'st-warn' : 'st-bad'}">● GPS ±${Math.round(me.acc)}m</span>`;
+  const ab = me.suspect && age <= GPS_STALE ? ['st-warn', '⚠ 位置確認中', 'GPSの位置が飛んだ'] : stale ? ['st-bad', '⚠ GPS途絶', `${age < 120 ? Math.round(age) + '秒' : Math.round(age/60) + '分'}前の位置`] : !(me.acc < GPS_ROUGH) ? ['st-bad', '⚠ 精度不足', `誤差±${Math.round(me.acc)}m`] : null;
+  k.classList.toggle('two', !!ab); // 異常のときだけ2行（状態名と、経過時間・誤差）
+  k.innerHTML = ab ? `<b class="${ab[0]}">${ab[1]}</b><br><span class="${ab[0]}" style="font-size:12px">${ab[2]}</span>` : `<span class="${me.acc < 20 ? 'st-ok' : me.acc < 60 ? 'st-warn' : 'st-bad'}">● GPS ±${Math.round(me.acc)}m</span>`;
   $('#vPos').style.opacity = stale ? .55 : 1;
   $('#vPos').innerHTML = settings.fmt === 'dec' ? `${me.lat.toFixed(5)}<br>${me.lon.toFixed(5)}` : `${fmtCoord(me.lat,true)}<br>${fmtCoord(me.lon,false)}`;
 }
@@ -1566,6 +1569,7 @@ function setNav(p){
   }
 }
 function updateNav(){
+  updateNav.eta = null; // 計算できたときだけ入れ直す（GPS不良・案内終了で古い到着予定を残さない）
   if (!navTarget) return;
   const t = [navTarget.lat, navTarget.lon];
   let body;
@@ -1630,28 +1634,35 @@ $('#fHome').onclick = () => {
 
 // ===== 接近通知（自分の地点・危険地点・定置網） =====
 const nearState = {};
+let lastDangerToast = 0;
 function checkNear(){
   const gs = gpsState(); if (gs.k !== 'ok' && gs.k !== 'rough') return;
   const here = [me.lat, me.lon], rough = gs.k === 'rough', acc = Math.round(me.acc);
+  const hits = []; // 今回新しく知らせるもの {danger, msg}
+  // 通知済みの状態：maybe＝不確かな接近（精度不足）、sure＝確かな接近。不確か→確かになったら改めて知らせる
+  const step = (k, near, far) => { const lv = near ? (rough ? 'maybe' : 'sure') : null;
+    if (lv && (!nearState[k] || (nearState[k] === 'maybe' && lv === 'sure'))){ nearState[k] = lv; return true; }
+    if (far) nearState[k] = false; return false; };
   points.forEach(p => {
     if (!p.alert && p.type !== 'danger') return;
-    const d = distM(here, [p.lat, p.lon]);
-    const r = p.type === 'danger' ? Math.max(settings.near, 100) : settings.near;
+    const d = distM(here, [p.lat, p.lon]), dg = p.type === 'danger';
+    const r = dg ? Math.max(settings.near, 100) : settings.near;
     const near = rough ? d - acc < r : d < r; // 精度不足なら、誤差の円が届く範囲は「近い可能性」
-    const lv = near ? (rough ? 'maybe' : 'sure') : null; // 通知済みの状態：maybe＝不確かな接近、sure＝確かな接近
-    if (lv && (!nearState[p.id] || (nearState[p.id] === 'maybe' && lv === 'sure'))){
-      nearState[p.id] = lv;
-      buzz(p.type === 'danger' ? [400,150,400,150,400] : [200,100,200]); if (p.type === 'danger') beep();
-      toast(rough ? `${p.type === 'danger' ? '⚠ 危険地点' : '◎ ポイント'}「${pointTitle(p)}」に近い可能性（GPS精度不足 ±${acc}m・距離は不確か）` : `${p.type === 'danger' ? '⚠ 危険地点' : '◎ ポイント接近'}：${pointTitle(p)}（${Math.round(d)}m）`, true, 6000);
-    } else if ((rough ? d - acc : d) > r*1.5) nearState[p.id] = false;
+    if (step(p.id, near, (rough ? d - acc : d) > r*1.5)) hits.push({danger:dg, msg: rough ? `${dg ? '⚠ 危険地点' : '◎ ポイント'}「${pointTitle(p)}」に近い可能性` : `${dg ? '⚠ 危険地点' : '◎ ポイント接近'}：${pointTitle(p)}（${Math.round(d)}m）`});
   });
   // 定置網：区域の150m手前で知らせる（区域は概略）
   fixedNets.forEach((n, i) => {
-    const k = 'net' + i, dist = polyDist(here, n.rings), inside = dist === 0;
-    const near = inside || (rough ? dist - acc < 150 : dist < 150), lv = near ? (rough && !inside ? 'maybe' : 'sure') : null;
-    if (lv && (!nearState[k] || (nearState[k] === 'maybe' && lv === 'sure'))){ nearState[k] = lv; buzz([400,150,400]); beep(); toast(rough ? `⚠ 定置網の区域（${n.name}）に近い可能性（GPS精度不足 ±${acc}m）。網とロープに注意` : `⚠ 定置網の区域に接近（${n.name}・${n.season}）。網とロープに注意`, true, 7000); }
-    else if (!near && (rough ? dist - acc : dist) > 400) nearState[k] = false;
+    const dist = polyDist(here, n.rings), inside = dist === 0;
+    const near = inside || (rough ? dist - acc < 150 : dist < 150);
+    if (step('net' + i, near, !near && (rough ? dist - acc : dist) > 400)) hits.push({danger:true, msg: rough ? `⚠ 定置網の区域（${n.name}）に近い可能性` : `⚠ 定置網の区域に接近（${n.name}・${n.season}）`});
   });
+  if (!hits.length) return;
+  hits.sort((x, y) => y.danger - x.danger);
+  const dn = hits.filter(h => h.danger).length, top = hits[0];
+  if (!top.danger && Date.now() - lastDangerToast < 8000) return; // 危険の通知を、ふつうのポイント通知で上書きしない
+  if (top.danger){ lastDangerToast = Date.now(); buzz([400,150,400,150,400]); beep(); } else buzz([200,100,200]);
+  const rest = hits.slice(1).map(h => h.msg.replace(/^[⚠◎] /, '')).join('／');
+  toast(`${dn > 1 ? `⚠ 危険接近 ${dn}件　` : ''}${top.msg}${rest ? `　ほか：${rest}` : ''}${rough ? `（GPS精度不足 ±${acc}m・距離は不確か）` : ''}${dn ? '。網・ロープ・浅場に注意' : ''}`, true, top.danger ? 9000 : 6000);
 }
 
 // 区域（多角形）までの距離 m。中なら0。近くだけなので平面で近似
@@ -1947,7 +1958,7 @@ function updateBarTide(){
   // 日没90分前からは、横スクロールの外（計器の直下）に「日没まで○分」を出す。帰港案内中は到着予定も並べる
   const sw = $('#sunWarn'), showSun = left > 0 && left < 90 && now > s.rise;
   sw.style.display = showSun ? 'block' : 'none'; sw.classList.toggle('bad', showSun && left < 30);
-  if (showSun) sw.innerHTML = `🌇 日没まで ${fmtDur(left)}（${hm(s.set)}）${navTarget?.home && updateNav.eta ? `　到着予定 ${hm(new Date(updateNav.eta))}${updateNav.eta > s.set.getTime() ? '・<b>日没後</b>' : ''}` : ''}`;
+  if (showSun) sw.innerHTML = `🌇 日没まで ${fmtDur(left)}（${hm(s.set)}）${navTarget?.home ? (updateNav.eta ? `　到着予定 ${hm(new Date(updateNav.eta))}${updateNav.eta > s.set.getTime() ? '・<b>日没後</b>' : ''}` : '　到着予定：GPS復帰待ち') : ''}`;
   if (left > 0 && left < 60 && !updateBarTide.warned){ updateBarTide.warned = true; toast(`日没まで${fmtDur(left)}です。帰港の準備を`, true, 8000); }
   renderInstruments();
 }
@@ -2050,6 +2061,7 @@ function addTripBreak(silent){
   const b = (settings.tripBreaks || []).filter(t => Date.now() - t < 3*365*86400000).concat(Date.now()).slice(-300);
   if (applySettings({tripBreaks:b}, silent ? undefined : 'ここから新しい釣行として記録をまとめます')) refreshLists();
 }
+document.querySelectorAll('.lBack').forEach(b => b.onclick = () => $('#lNav').scrollIntoView({behavior:'smooth', block:'start'}));
 $('#lNav').onclick = e => { const b = e.target.closest('[data-lnav]'); if (!b) return; const el = document.getElementById(b.dataset.lnav); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({behavior:'smooth', block:'start'}); };
 $('#lTripBreak').onclick = () => { if (confirm('今の時刻で釣行を区切りますか？\n（これから付ける記録は、新しい釣行としてまとめます）')) addTripBreak(); };
 // 流しの記録：その流しでの釣果つき。地図で筋を見て、始点へ向かえる
