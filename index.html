@@ -518,6 +518,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
       <li><b>位置情報を「許可」</b>してください。速力・進行方向・現在地が上に出ます。</li>
       <li>下の<b>「航行／流し／かかり」</b>で今の釣り方を選びます。</li>
       <li>釣れたら<b>🎣釣れた → 魚種をタップ</b>。それだけで記録されます。</li>
+      <li>帰港・地点の登録・地図の表示・安全は、右の<b>「その他」</b>から。</li>
     </ol>
     <p class="note" style="color:var(--warn)"><b>⚠ 航海用の海図ではありません。</b>水深・暗礁・網は正式な海図や参考図で確かめてください。</p>
     <div class="row"><button class="btn pri" id="onbOk" style="flex:1">はじめる</button><button class="btn" id="onbMore">詳しい使い方</button></div>
@@ -897,7 +898,7 @@ function hideBs(){ if (openBs) openBs.classList.remove('show'); openBs = null; $
 $('#shade').onclick = hideBs;
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = hideBs);
 $('#fLayers').onclick = () => { renderLayerSheet(); showBs('#bsLayers'); };
-const setFabsMin = (v, noSave) => { document.body.classList.toggle('fabsMin', v); const auto = document.body.classList.contains('fabsAuto'); $('#fMore').innerHTML = auto ? '<i>⋯</i>その他' : v ? '<i>⋯</i>開く' : '<i>︿</i>畳む'; if (noSave) return; $('#fMore').setAttribute('aria-label', v ? '右の操作を開く' : '右の操作を畳んで地図を広く'); store.set('fabsMin', v); };
+const setFabsMin = (v, noSave) => { document.body.classList.toggle('fabsMin', v); const auto = document.body.classList.contains('fabsAuto'); $('#fMore').innerHTML = auto || v ? '<i>⋯</i>その他' : '<i>︿</i>閉じる'; if (noSave) return; $('#fMore').setAttribute('aria-label', v ? '右の操作を開く' : '右の操作を畳んで地図を広く'); store.set('fabsMin', v); };
 setFabsMin(store.get('fabsMin', true));
 $('#fMore').onclick = () => innerHeight > 600 && !document.body.classList.contains('fabsAuto') ? setFabsMin(!document.body.classList.contains('fabsMin')) : toast('そのほかの操作', false, 0, [['🗺 表示', () => $('#fLayers').click()], ['📍 ＋地点', () => $('#fAdd').click()], ['⚓ 帰港', () => $('#fHome').click()], ['🆘 安全', () => $('#fSafety').click()]]);
 
@@ -1015,7 +1016,7 @@ function startGps(){
     if (e.code === 1) $('#vPos').textContent = 'ブラウザの設定で許可を';
   }, {enableHighAccuracy:true, maximumAge:2000, timeout:20000});
 }
-function setFollow(v){ follow = v; store.set('follow', v); $('#fFollow').classList.toggle('on', v); if (v && me) map.setView([me.lat, me.lon], Math.max(map.getZoom(), 14)); }
+function setFollow(v){ follow = v; store.set('follow', v); $('#fFollow').classList.toggle('on', v); if (v && me){ settleMap(); map.setZoom(Math.max(map.getZoom(), 14), {animate:false}); map.setView(followCenter(L.latLng(me.lat, me.lon)), map.getZoom(), {animate:false}); } }
 $('#fFollow').onclick = () => { if (!me) return toast('まだGPSの位置がありません'); setFollow(!follow); };
 map.on('dragstart', () => { if (follow) setFollow(false); });
 
@@ -1375,7 +1376,8 @@ function condText(c){
   if (c.pres != null) a.push(`気圧 ${Math.round(c.pres)}hPa`);
   if (c.drift != null) a.push(`流し ${c.drift.toFixed(1)}kn`);
   if (c.wind == null && c.tide != null) a.push('風・波は未取得（圏外か3日より前）');
-  return a.length ? 'そのときの状況' + (c.wxSrc ? '（風・波・水温は予報モデル値）' : '') + '：' + a.join(' / ') : '';
+  const src = [c.wxSrc === 'モデル値（保存予報）' || c.waveSrc === '保存予報' ? `保存予報から${c.waveSrc && c.wxSrc !== 'モデル値（保存予報）' ? '波を' : ''}補った値${c.wxAt ? `（${fmtDT(c.wxAt)} 取得・${c.wxFrom || ''}）` : ''}` : '', c.wxPending ? '電波が戻ったら取り直します' : ''].filter(Boolean).join('・');
+  return a.length ? 'そのときの状況' + (c.wxSrc ? '（風・波・水温は予報モデル値）' : '') + '：' + a.join(' / ') + (src ? `\n${src}` : '') : '';
 }
 function openPoint(id, init){
   hideBs();
@@ -1472,7 +1474,7 @@ async function fillCond(id){
     const q = `latitude=${p.lat.toFixed(3)}&longitude=${p.lon.toFixed(3)}&timezone=Asia%2FTokyo&past_days=3&forecast_days=1`;
     const [w, m] = await Promise.all([
       getJson(`https://api.open-meteo.com/v1/forecast?${q}&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms`),
-      getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height,sea_surface_temperature`).catch(() => ({data:{}}))
+      getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height,sea_surface_temperature`).catch(() => ({data:{}, failed:true}))
     ]);
     const d = new Date(p.time), key = `${ymd(d)}T${pad(d.getHours())}:00`;
     const i = w.data.hourly?.time.indexOf(key), j = m.data.hourly?.time?.indexOf(key) ?? -1;
@@ -1482,12 +1484,13 @@ async function fillCond(id){
     if (!q2 || q2.lat !== p.lat || q2.lon !== p.lon || q2.time !== p.time) return;
     const H = w.data.hourly, M = m.data.hourly || {};
     const c = Object.assign({}, q2, {cond: Object.assign({}, q2.cond || {}, {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], temp: H.temperature_2m[i], pres: H.pressure_msl[i],
-      wave: j >= 0 ? M.wave_height?.[j] : null, sst: j >= 0 ? M.sea_surface_temperature?.[j] : null, wxSrc:'モデル値', wxCached: w.cached, wxPending: undefined, wxFrom: undefined, wxAt: undefined})});
+      wave: j >= 0 ? M.wave_height?.[j] : null, sst: j >= 0 ? M.sea_surface_temperature?.[j] : null, wxSrc:'モデル値', wxCached: w.cached, wxPending: m.failed ? true : undefined, wxFrom: undefined, wxAt: undefined})});
     commitPoints(points.map(x => x.id === id ? c : x));
+    if (m.failed) fillCondSaved(id, true); // 波だけ取れなかった：保存予報で補えるなら補い、電波が戻ったら取り直す
   }catch(e){ fillCondSaved(id); }
 }
 // 保存してある予報（10km以内・同じ時刻）から風・波を付ける。付けられなければ「未取得」の印を残す
-function fillCondSaved(id){
+function fillCondSaved(id, waveOnly){
   const p = points.find(x => x.id === id); if (!p) return;
   const d = new Date(p.time), key = `${ymd(d)}T${pad(d.getHours())}:00`;
   const src = [wxData && {w:wxData.w, m:wxData.m, ll:wxData.ll, at:wxData.at}, ...(grid ? grid.pts.map((ll, k) => ({w:grid.w[k], m:grid.m[k], ll, at:gridAt})) : [])].filter(x => x && x.w?.hourly)
@@ -1495,8 +1498,8 @@ function fillCondSaved(id){
   const i = src ? src.w.hourly.time.indexOf(key) : -1;
   if (i < 0){ if (!p.cond?.wxPending) commitPoints(points.map(x => x.id === id ? Object.assign({}, x, {cond: Object.assign({}, x.cond || {}, {wxPending:true})}) : x)); return; }
   const H = src.w.hourly, M = mhOf(src.w, src.m);
-  commitPoints(points.map(x => x.id === id ? Object.assign({}, x, {cond: Object.assign({}, x.cond || {}, {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], wave: M.wave_height?.[i] ?? null,
-    wxSrc:'モデル値（保存予報）', wxAt: src.at, wxFrom: `${Math.round(src.d/100)/10}km先の予報地点`, wxPending:true})}) : x));
+  const add = waveOnly ? {wave: M.wave_height?.[i] ?? null, waveSrc:'保存予報', wxPending:true} : {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], wave: M.wave_height?.[i] ?? null, wxSrc:'モデル値（保存予報）', wxPending:true};
+  commitPoints(points.map(x => x.id === id ? Object.assign({}, x, {cond: Object.assign({}, x.cond || {}, add, {wxAt: src.at, wxFrom: `${Math.round(src.d/100)/10}km先の予報地点`})}) : x));
 }
 // 電波が戻ったら、未取得・保存予報で付けた釣果の気象を取り直す（3日以内・最大20件）
 function refillPending(){ points.filter(p => p.cond?.wxPending && Date.now() - p.time < 3*86400000).slice(-20).forEach((p, k) => setTimeout(() => fillCond(p.id), k*1500)); }
@@ -1588,6 +1591,8 @@ function renderMob(){
   $('#mobGo').style.display = m.lat == null ? 'none' : '';
   $('#mobPick').style.display = ''; // 誤差が大きい・古い位置のときに直せるよう、対応中はいつも出す
   document.documentElement.style.setProperty('--mobH', el.offsetHeight + 'px');
+  // パネルの高さが変わったら、追従中の自船を隠れない範囲の真ん中へ置き直す
+  if (follow && me && renderMob.h !== el.offsetHeight){ renderMob.h = el.offsetHeight; requestAnimationFrame(() => map.panTo(followCenter(L.latLng(me.lat, me.lon)), {animate:false})); }
 }
 setInterval(() => { if (activeMob) renderMob(); }, 3000);
 $('#fMob').onclick = () => {
@@ -1640,10 +1645,10 @@ function setNav(p){
 // 地図のうち、案内カード・右のボタン列・下のパネルに隠れない範囲（余白 px）。見えていない部品は数えない
 function freePad(){
   const mr = $('#map').getBoundingClientRect(), vis = el => el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0; // 固定表示の部品は offsetParent が null なので使わない
-  const nb = $('#navBox'), fb = document.querySelector('.fabs'), db = $('#bottomDock');
+  const nb = $('#navBox'), fb = document.querySelector('.fabs'), db = $('#bottomDock'), mp = $('#mobPanel');
   let top = vis(nb) ? nb.getBoundingClientRect().bottom - mr.top + 12 : 16;
   let right = vis(fb) ? mr.right - fb.getBoundingClientRect().left + 8 : 16;
-  let bottom = vis(db) ? mr.bottom - db.getBoundingClientRect().top + 12 : 16;
+  let bottom = Math.max(vis(db) ? mr.bottom - db.getBoundingClientRect().top + 12 : 16, vis(mp) ? mr.bottom - mp.getBoundingClientRect().top + 12 : 16); // 落水対応パネルも避ける
   top = Math.max(16, top); right = Math.max(16, right); bottom = Math.max(16, bottom);
   // 見える範囲が狭くなりすぎないよう、上下・左右とも最低160px は地図を残す
   const fitIn = (a, b, size) => { const over = a + b - (size - 160); return over > 0 ? [a - over*a/(a + b), b - over*b/(a + b)] : [a, b]; };
@@ -2302,7 +2307,8 @@ function cleanCond(c, t){
   if (!c || typeof c !== 'object') return base;
   return Object.assign(base, {
     wind:numIn(c.wind, 0, 80), windDir:numIn(c.windDir, 0, 360), wave:numIn(c.wave, 0, 30), sst:numIn(c.sst, -5, 40), temp:numIn(c.temp, -40, 50), pres:numIn(c.pres, 850, 1100),
-    drift:numIn(c.drift, 0, 20), driftId:str(c.driftId, 40) || null, mode:['run','drift','anchor'].includes(c.mode) ? c.mode : null, wxSrc:c.wxSrc ? 'モデル値' : undefined
+    drift:numIn(c.drift, 0, 20), driftId:str(c.driftId, 40) || null, mode:['run','drift','anchor'].includes(c.mode) ? c.mode : null, wxSrc: c.wxSrc === 'モデル値（保存予報）' ? c.wxSrc : c.wxSrc ? 'モデル値' : undefined, waveSrc: c.waveSrc === '保存予報' ? '保存予報' : undefined,
+    wxAt: okTime(c.wxAt) ? c.wxAt : undefined, wxFrom: str(c.wxFrom, 40) || undefined, wxPending: c.wxPending === true ? true : undefined
   });
 }
 function cleanSettings(j){
@@ -2599,7 +2605,9 @@ const closeZ = () => !useSaved() ? Math.max(map.getZoom(), 15) : Math.min(Math.m
 map.on('zoomend', () => { if (useSaved() && map.getZoom() > OFF_MAXZ && !closeZ.warned){ closeZ.warned = true; toast(`圏外では z${OFF_MAXZ} より拡大した地図は保存されていないことがあります`, true, 0, [['保存した淡色地図へ戻る', goSavedMap], ['このまま', () => {}]]); } if (map.getZoom() <= OFF_MAXZ) closeZ.warned = false; });
 // 拡大・縮小のアニメーションが終わらずに残っていると、次の倍率変更が無視される（画面の切り替え中など）。先に終わらせる
 // 前もって保存したのは「地理院 淡色」の倍率10〜14。種類・倍率・保存範囲の枠をまとめてそこへ戻す
-function goSavedMap(){ settleMap(); if (store.get('base', 'pale') !== 'pale') setBase('pale'); if (map.getZoom() > OFF_MAXZ) map.setZoom(OFF_MAXZ, {animate:false}); try{ offRect.addTo(map); }catch(e){} toast('保存した淡色地図（倍率14まで）にしました。黄色の点線の内側が保存範囲です', false, 5000); }
+function goSavedMap(){ settleMap(); if (store.get('base', 'pale') !== 'pale') setBase('pale'); if (map.getZoom() > OFF_MAXZ) map.setZoom(OFF_MAXZ, {animate:false}); try{ offRect.addTo(map); }catch(e){}
+  if (!settings.offMap && applySettings({offMap:true})) $('#sOffMap').checked = true;
+  toast('保存した淡色地図（倍率14まで）で使います。黄色の点線の内側が保存範囲です。電波が戻ったら設定タブで解除できます', false, 6000, [['今すぐ通常に戻す', () => { if (applySettings({offMap:false})){ $('#sOffMap').checked = false; tileFails = []; } }]]); }
 function settleMap(){ if (map._animatingZoom){ try{ map._onZoomTransitionEnd(); }catch(e){} } }
 function startPick(title, cb, at){
   pickBack = curTab; showTab('map'); setFollow(false);
@@ -2752,6 +2760,7 @@ window.addEventListener('online', async () => {
 // ===== 起動 =====
 applyNight();
 setBase(store.get('base', 'pale'));
+if (navigator.onLine) setTimeout(refillPending, 15000); // 起動時にも、気象が未取得の釣果を取り直す
 shownOver.forEach(id => { const o = OVER.find(x => x.id === id); if (o) map.addLayer(o.layer); });
 $('#fFollow').classList.toggle('on', follow); zoomCls();
 [...$('#modeSeg').children].forEach(b => b.classList.toggle('on', b.dataset.m === mode));
