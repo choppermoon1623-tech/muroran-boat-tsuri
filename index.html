@@ -31,7 +31,8 @@ body.night #toast{background:#1a0000;color:#ff9a9a;border:1px solid #ff4040}
 body.night .aheadTag{background:#600;color:#ffb0b0;border-color:#f44}
 #sunWarn{padding:4px 10px 6px;font-size:15px;font-weight:800;color:var(--warn)}
 #sunWarn.bad{color:#fff;background:#8a1010}
-#dangerBar{padding:4px 10px 6px;font-size:15px;font-weight:800;color:#fff;background:#8a1010;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#toast{white-space:pre-line}
+#dangerBar{cursor:pointer;min-height:30px;padding:4px 10px 6px;font-size:15px;font-weight:800;color:#fff;background:#8a1010;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .alarmBtn{background:#fff!important;color:#b00000!important}
 body.night .alarmBtn,body.night #mobPanel a.btn{background:#3a0000!important;color:#ffb0b0!important;border-color:#ff4040!important}
 body.night #toast .btn{background:#300;color:#ff9a9a;border-color:#ff4040}
@@ -53,7 +54,8 @@ a{color:var(--accent)}
 #bar .v{font-size:24px;font-weight:800;line-height:1.1;white-space:nowrap;font-variant-numeric:tabular-nums}
 #bar .v small{font-size:12px;font-weight:600;color:var(--sub)}
 #bar .pos{font-size:13px;font-weight:700;line-height:1.25;font-variant-numeric:tabular-nums}
-#chips{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding:4px 8px;scrollbar-width:none}
+#chips{display:flex;flex-wrap:wrap;gap:6px;padding:4px 8px}
+#cpWx{order:1} #cpTide{order:2} #cpNet{order:3} #vSun{order:4}
 #chips::-webkit-scrollbar{display:none}
 #chips::-webkit-scrollbar{display:none}
 .cp{flex:none;border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:2px 9px;font-size:13px;line-height:1.45;white-space:nowrap}
@@ -911,6 +913,8 @@ function drawPoints(){
 }
 // 新しい一覧を端末に保存できたときだけ画面にも反映する（失敗したら何も変えない）
 function commitPoints(next){ if (!store.set('points', next)) return false; points = next; drawPoints(); return true; }
+// 釣果・地点の数値の範囲（手入力と取り込みで同じものを使う）
+const NUM_RANGE = {size:[0, 500], depth:[0, 2000], bottom:[0, 5000], count:[1, 999]};
 const SAVE_FAIL = '端末に保存できませんでした（容量不足など）。記録タブの「全データを書き出し」で退避し、古い航跡を消して空きを作ってください';
 
 // ===== GPS =====
@@ -1128,7 +1132,7 @@ function startDrift(quiet){
 // 保存できなかった流し・錨泊の履歴。見張りや流しは止め、記録だけ後で保存し直す（書き出しにも含める）
 let unsavedLog = [];
 function keepUnsaved(x, what){ unsavedLog.push(x); toast(`${what}は終えました。ただし履歴を端末に保存できませんでした（履歴未保存 ${unsavedLog.length}件・空きができたら自動で保存し直します）。` + SAVE_FAIL, true, 9000); }
-function retryUnsaved(){ if (!unsavedLog.length) return; const rest = []; unsavedLog.forEach(x => { if (!logSession(x)) rest.push(x); }); unsavedLog = rest; }
+function retryUnsaved(){ if (!unsavedLog.length) return; const rest = []; unsavedLog.forEach(x => { if (!logSession(x)) rest.push(x); }); unsavedLog = rest; if (curTab === 'log') refreshLists(); }
 function endAnchor(){
   if (anchor){ const x = {kind:'anchor', id: anchor.id || ('a' + anchor.t), start:anchor.t, end:Date.now(), ll:anchor.ll}; if (!logSession(x)) keepUnsaved(x, '錨泊の見張り'); }
   anchor = null; store.set('anchor', null); anchorAlarm = false; alarmMuted = false; silenceAlarm();
@@ -1387,7 +1391,7 @@ $('#pSave').onclick = () => {
   if (!ll){ $('#pPos').focus(); return; }
   const num = id => { const v = $(id).value; return v === '' || !isFinite(Number(v)) ? null : Number(v); };
   // 手入力も取り込みと同じ範囲で確かめ、おかしい値は欄のすぐ下に出す
-  const rng = [['#pSize', 0, 300, '大きさは0〜300cm'], ['#pDepth', 0, 1000, 'タナは0〜1000m'], ['#pBottom', 0, 2000, '水深は0〜2000m'], ['#pCount', 1, 999, '匹数は1〜999']];
+  const rng = [['#pSize', ...NUM_RANGE.size, `大きさは${NUM_RANGE.size.join('〜')}cm`], ['#pDepth', ...NUM_RANGE.depth, `タナは${NUM_RANGE.depth.join('〜')}m`], ['#pBottom', ...NUM_RANGE.bottom, `水深は${NUM_RANGE.bottom.join('〜')}m`], ['#pCount', ...NUM_RANGE.count, `匹数は${NUM_RANGE.count.join('〜')}`]];
   document.querySelectorAll('.fErr').forEach(e => e.remove());
   const badF = rng.filter(([id, lo, hi]) => { const v = $(id).value; if (v === '' || (id !== '#pBottom' && editType !== 'catch')) return false; const n = Number(v); return !isFinite(n) || n < lo || n > hi; });
   if (badF.length){ badF.forEach(([id, , , m]) => { const e = document.createElement('div'); e.className = 'fErr note st-bad'; e.textContent = `⚠ ${m}で入れてください`; $(id).after(e); }); $(badF[0][0]).focus(); return; }
@@ -1652,8 +1656,9 @@ let lastDangerToast = 0;
 function renderDangerBar(){
   const names = points.filter(p => p.type === 'danger' && nearState[p.id]).map(p => (nearState[p.id] === 'maybe' ? '？' : '') + pointTitle(p))
     .concat(fixedNets.map((n, i) => nearState['net' + i] ? (nearState['net' + i] === 'maybe' ? '？' : '') + '定置網 ' + n.name : null).filter(Boolean));
-  const el = $('#dangerBar'); el.style.display = names.length ? 'block' : 'none';
-  if (names.length) el.textContent = `⚠ 近くの危険：${names.join('・')}${names.some(x => x[0] === '？') ? '（？は精度不足で不確か）' : ''}`;
+  const el = $('#dangerBar'); el.style.display = names.length ? 'block' : 'none'; el._names = names;
+  const k = gpsState().k, held = k !== 'ok' && k !== 'rough';
+  if (names.length) el.textContent = `⚠ ${held ? '最終判定（GPS更新停止）' : '近くの危険'} ${names.length}件：${names.join('・')}${names.some(x => x[0] === '？') ? '（？は不確か）' : ''}`;
 }
 function checkNear(){
   const gs = gpsState(); if (gs.k !== 'ok' && gs.k !== 'rough') return;
@@ -2028,8 +2033,11 @@ function refreshLists(){
   renderTrend(fs); renderDrifts(); renderTrips();
   // バックアップの催促
   const lb = settings.lastBackup || 0, need = points.length >= 5 && Date.now() - lb > 14*86400000;
-  $('#lBackupWarn').innerHTML = need ? `<div class="card warnCard row" style="flex-wrap:nowrap;padding:8px 10px"><div class="note" style="flex:1;color:var(--text)">💾 ${lb ? `前回の書き出し ${fmtDT(lb)}` : 'まだ書き出していません'}</div><button class="btn sm" id="lBackupNow">書き出す</button></div>` : '';
+  const unsv = unsavedLog.length ? `<div class="card warnCard row" style="flex-wrap:nowrap;padding:8px 10px"><div class="note" style="flex:1;color:var(--text)">⚠ 履歴未保存 ${unsavedLog.length}件（端末の空き不足）</div><button class="btn sm" id="lUnsvRetry">再保存</button><button class="btn sm" id="lUnsvExp">書き出す</button></div>` : '';
+  $('#lBackupWarn').innerHTML = unsv + (need ? `<div class="card warnCard row" style="flex-wrap:nowrap;padding:8px 10px"><div class="note" style="flex:1;color:var(--text)">💾 ${lb ? `前回の書き出し ${fmtDT(lb)}` : 'まだ書き出していません'}</div><button class="btn sm" id="lBackupNow">書き出す</button></div>` : '');
   if ($('#lBackupNow')) $('#lBackupNow').onclick = exportJson;
+  if ($('#lUnsvRetry')) $('#lUnsvRetry').onclick = () => { retryUnsaved(); toast(unsavedLog.length ? `まだ ${unsavedLog.length}件を保存できません。書き出して古い航跡を消してください` : '保存し直しました', !!unsavedLog.length); refreshLists(); };
+  if ($('#lUnsvExp')) $('#lUnsvExp').onclick = exportJson;
   $('#lTracks').innerHTML = (tracks.length ? tracks.map(tr => `<div class="item"><div class="t"><b>${fmtDT(tr.start)}〜${tr.end ? hm(new Date(tr.end)) : ''}</b><span>${fmtDist(tr.dist || 0)}・${tr.pts.length}点</span></div><label class="row note" style="flex:none"><input type="checkbox" data-tr="${tr.id}" ${shownTracks.has(tr.id) ? 'checked' : ''}>表示</label><button class="btn sm" data-gpx="${tr.id}">GPX</button><button class="btn sm danger" data-trdel="${tr.id}" aria-label="削除">✕</button></div>`).join('') : '<p class="note" style="padding:8px">航跡はGPSが入っている間、自動で記録されます（2時間止まると区切り）。</p>') +
     (rec && rec.pts.length > 2 ? `<div class="item"><div class="t"><b>記録中：${fmtDT(rec.start)}〜</b><span>${fmtDist(trackDist(rec.pts))}</span></div><button class="btn sm" id="trFinish">ここで区切る</button></div>` : '');
   if ($('#trFinish')) $('#trFinish').onclick = () => finishTrack();
@@ -2242,8 +2250,8 @@ $('#imFile').onchange = async e => {
     const t = okTime(p.time) ? p.time : noTime ? Date.now() : null;
     if (t == null){ bad++; return null; }
     const c = {id: typeof p.id === 'string' && /^[\w-]{4,40}$/.test(p.id) ? p.id : uid(), type: TYPES[p.type] ? p.type : 'spot', lat:p.lat, lon:p.lon, time:t,
-      name:str(p.name, 80), memo:str(p.memo), species:str(p.species, 40), method:str(p.method, 40), size:numIn(p.size, 0, 500), count: Math.round(numIn(p.count, 1, 999) ?? 1),
-      depth:numIn(p.depth, 0, 2000), bottom:numIn(p.bottom, 0, 5000), alert:p.alert === true, cond: cleanCond(p.cond, t),
+      name:str(p.name, 80), memo:str(p.memo), species:str(p.species, 40), method:str(p.method, 40), size:numIn(p.size, ...NUM_RANGE.size), count: Math.round(numIn(p.count, ...NUM_RANGE.count) ?? 1),
+      depth:numIn(p.depth, ...NUM_RANGE.depth), bottom:numIn(p.bottom, ...NUM_RANGE.bottom), alert:p.alert === true, cond: cleanCond(p.cond, t),
       posSrc:str(p.posSrc, 60) || undefined, acc:numIn(p.acc, 0, 10000) ?? undefined, fixAt: okTime(p.fixAt) ? p.fixAt : undefined};
     if (noTime){ c.timeUnknown = true; c.cond = null; if (p.fromGpx && !/日時不明/.test(c.memo)) c.memo = (c.memo ? c.memo + ' / ' : '') + '日時不明（GPXから）'; }
     const hasId = typeof p.id === 'string' && /^[\w-]{4,40}$/.test(p.id);
@@ -2377,7 +2385,7 @@ function renderReturnWx(){
   const L2 = idx.map(i => hourLevel(h, mh, i)), lvs = L2.map(x => x.lv), wst = lvs.includes('r') ? 'r' : lvs.includes('n') ? 'n' : lvs.includes('y') ? 'y' : 'g';
   const mx = a => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
   const bad = idx.find(i => hourLevel(h, mh, i).lv === 'r');
-  const place = wxData.label === '現在地' || !me ? (wxData.label || '') : `${wxData.label}`;
+  const place = wxMoved() ? '⚠ 以前の地点の予報（取り直し中・現在地の判定ではありません）' : (wxData.label || '');
   el.innerHTML = `<span style="font-size:14px">（${esc(place)} ${fmtLL(wxData.ll[0], wxData.ll[1])}・${fmtDT(wxData.at)} 取得${me ? `・現在地から${fmtDist(distM([me.lat, me.lon], wxData.ll))}` : ''}）</span><br>帰港予定 ${hm(end)} までの予報：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　平均風速 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}m/s（突風${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}）・有義波高 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m${wxReasons(h, mh, idx, end)}`;
 }
 // ×や？の理由（雷・強い突風・視界不良・欠測）と、予報が帰港予定まで届いているか
@@ -2443,10 +2451,12 @@ $('#sfDepart').onclick = () => {
   if (ck < CHECKS.length) toast(`出船前チェックが ${CHECKS.length - ck} 項目残っています`, true, 5000);
 };
 $('#sfArrive').onclick = () => shareText('帰港しました', `【帰港連絡】${fmtDT(Date.now())} 無事に帰港しました。${settings.home ? `（${settings.home.name}）` : ''}`);
-$('#fSafety').onclick = () => { renderSafety(); showBs('#bsSafety'); if (!wxData || Date.now() - wxData.at > 3600000 || (me && wxData.label !== '現在地')){ wxAt = null; loadPointWx().then(renderReturnWx); } };
+$('#fSafety').onclick = () => { renderSafety(); showBs('#bsSafety'); if (!wxData || Date.now() - wxData.at > 3600000 || (me && wxData.label !== '現在地') || wxMoved()){ wxAt = null; loadPointWx().then(renderReturnWx); } };
+// 予報を取った地点から、いまの船が5km以上離れているか（湾内から外海へ出た時などは取り直す）
+const wxMoved = () => !!(wxData && me && distM([me.lat, me.lon], wxData.ll) > 5000);
 // 安全画面を開いている間は現在地と経過時間を更新し続ける
 let sfTick = 0;
-setInterval(() => { if (openBs && openBs.id === 'bsSafety'){ if (++sfTick % 30 === 0){ renderReturnWx(); renderPortWx(); } if (sfTick % 5 === 0) renderReady(); $('#sfPos').textContent = me ? fmtDM(me.lat, me.lon) : 'GPSの位置がありません'; $('#sfPos2').innerHTML = me ? `10進 ${me.lat.toFixed(5)}, ${me.lon.toFixed(5)}　${hm(new Date(me.t))} 受信（${Math.round(gpsAge())}秒前）・誤差±${Math.round(me.acc)}m${gpsFresh() ? '' : ` <b class="st-bad">${gpsState().text}</b>`}` : ''; } }, 2000);
+setInterval(() => { if (openBs && openBs.id === 'bsSafety'){ if (++sfTick % 30 === 0){ if (wxMoved() && gpsFresh()){ wxAt = null; loadPointWx().then(renderReturnWx); } else renderReturnWx(); renderPortWx(); } if (sfTick % 5 === 0) renderReady(); $('#sfPos').textContent = me ? fmtDM(me.lat, me.lon) : 'GPSの位置がありません'; $('#sfPos2').innerHTML = me ? `10進 ${me.lat.toFixed(5)}, ${me.lon.toFixed(5)}　${hm(new Date(me.t))} 受信（${Math.round(gpsAge())}秒前）・誤差±${Math.round(me.acc)}m${gpsFresh() ? '' : ` <b class="st-bad">${gpsState().text}</b>`}` : ''; } }, 2000);
 
 // ===== 設定 =====
 function renderHome(){
@@ -2599,6 +2609,8 @@ loadGrid(); setInterval(() => loadGrid(true), 60*60000);
 setInterval(() => { updateBarWx(); drawGrid(); if (curTab === 'weather' && wxData) renderWx(); }, 60000);
 setInterval(() => { renderInstruments(); if (mode !== 'run') updateMode(); if (navTarget) updateNav(); }, 5000);
 setInterval(retryUnsaved, 60000);
+setInterval(renderDangerBar, 5000);
+$('#dangerBar').onclick = () => { const n = $('#dangerBar')._names || []; if (n.length) toast(`近くの危険 ${n.length}件\n` + n.map((x, i) => `${i + 1}. ${x}`).join('\n') + (n.some(x => x[0] === '？') ? '\n（？はGPS精度不足で不確か）' : ''), true, 9000, null, {danger:true}); };
 // 保存した地図が今もそろっているかを、縮尺ごとに数える
 async function checkOffline(){
   if (!('caches' in window)) return null;
