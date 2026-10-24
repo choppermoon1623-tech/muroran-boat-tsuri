@@ -545,7 +545,8 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
 </div>
 <div class="onb" id="help">
   <div class="card">
-    <div class="bsHead"><h2>❓ 使い方</h2><button class="x" id="helpX" aria-label="閉じる">✕</button></div>
+    <div class="bsHead" style="position:sticky;top:-12px;background:var(--panel);z-index:2;padding:4px 0"><h2>❓ 使い方</h2><div class="row" style="flex-wrap:nowrap"><button type="button" class="btn sm" id="hMob" style="background:#b30000;color:#fff;border-color:#ff8080">MOB</button><button class="x" id="helpX" aria-label="閉じる">✕</button></div></div>
+    <div id="hAlarm" style="display:none;position:sticky;top:44px;z-index:2;background:#b00000;color:#fff;border-radius:10px;padding:8px 10px;margin-bottom:8px;font-weight:900"></div>
     <ul class="note" style="padding-left:18px;color:var(--text);font-size:14px">
       <li><b>上の表示</b>：速力（ノット）・進行方向・現在地。2段目は風・波（この海域の予報）、潮、満干の時刻、日没までの時間。</li>
       <li><b>流し</b>：直近1分の流される速さと向き。「ここから流し直す」で区切り、「流し始めに戻る」で始点へ案内。流した筋は今日のうちは灰色で残ります。</li>
@@ -1351,6 +1352,9 @@ function updateMode(){
   const pa = $('#pAlarm');
   if (dlg.open && (anchorAlarm || st.gpsBad)){ pa.style.display = 'block'; pa.innerHTML = `${anchorAlarm ? `⚠ 走錨のおそれ　錨から ${Math.round(d)}m` : '⚠ GPS不良：走錨の見張りができていません'}<br><button type="button" class="btn sm" id="pToAlarm" class="btn sm alarmBtn" style="margin-top:6px">警報を見る（入力はそのまま残ります）</button>`; $('#pToAlarm').onclick = () => { dlg.close(); showTab('map'); toast('編集中の内容は残っています', false, 8000, [['編集に戻る', () => dlg.showModal()]]); }; }
   else pa.style.display = 'none';
+  const ha = $('#hAlarm');
+  if ($('#help').classList.contains('show') && (anchorAlarm || st.gpsBad)){ ha.style.display = 'block'; ha.innerHTML = `${anchorAlarm ? `⚠ 走錨のおそれ　錨から ${Math.round(d)}m` : '⚠ GPS不良：走錨の見張りができていません'}<br><button type="button" class="btn sm alarmBtn" id="hToAlarm" style="margin-top:6px">警報を見る</button>`; $('#hToAlarm').onclick = () => { $('#help').classList.remove('show'); showTab('map'); }; }
+  else ha.style.display = 'none';
   const ca = $('#chAlarm');
   if ($('#choiceDlg').open && (anchorAlarm || st.gpsBad)){ ca.style.display = 'block'; ca.innerHTML = `${anchorAlarm ? `⚠ 走錨のおそれ　錨から ${Math.round(d)}m` : '⚠ GPS不良：走錨の見張りができていません'}<br><button type="button" class="btn sm alarmBtn" id="chToAlarm" style="margin-top:6px">警報を見る（この確認は取りやめ）</button>`; $('#chToAlarm').onclick = () => { $('#choiceDlg').close(); showTab('map'); }; }
   else ca.style.display = 'none';
@@ -1892,19 +1896,24 @@ async function fetchGrid(){
   const pts = gridPoints(), lat = pts.map(p => p[0]).join(','), lon = pts.map(p => p[1]).join(',');
   $('#tbSrc').textContent = '読み込み中…';
   try{
-    const [w, m] = await Promise.all([
+    const [wr, mr] = await Promise.allSettled([
       getJson(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code,visibility&wind_speed_unit=ms&timezone=Asia%2FTokyo&forecast_days=3`),
       getJson(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction&timezone=Asia%2FTokyo&forecast_days=3`)
     ]);
-    if (!Array.isArray(w.data) || !w.data[0]?.hourly) throw new Error('bad');
-    grid = {pts, w: w.data, m: [].concat(m.data)}; gridAt = Math.min(w.at, m.at); grid.cached = w.cached || m.cached;
-    if (!grid.cached) store.set('grid', {at:gridAt, grid});
+    const w = wr.status === 'fulfilled' ? wr.value : null;
+    if (!w || !Array.isArray(w.data) || !w.data[0]?.hourly) throw new Error('bad');
+    let m = mr.status === 'fulfilled' ? mr.value : null, waveSrc = '';
+    if (!m){ const sv = store.get('grid', null); // 波だけ失敗：同じ格子の保存分があれば使い、無ければ波なし
+      if (sv?.grid?.pts?.length === pts.length && sv.grid.pts.every((p, k) => distM(p, pts[k]) < 3000)){ m = {data: sv.grid.m, at: sv.at}; waveSrc = `波は保存分（${fmtDT(sv.at)} 取得）`; }
+      else { m = {data: pts.map(() => ({})), at: w.at}; waveSrc = '波は取得できませんでした'; } }
+    grid = {pts, w: w.data, m: [].concat(m.data), waveSrc}; gridAt = w.at; grid.cached = w.cached;
+    if (!grid.cached && !waveSrc) store.set('grid', {at:gridAt, grid});
   }catch(e){
     const c = store.get('grid', null);
     if (c){ grid = c.grid; gridAt = c.at; grid.cached = true; }
     else { grid = null; $('#tbSrc').textContent = '予報を取得できません'; $('#vWind').textContent = '取得できず'; $('#vWave').textContent = '--'; return; }
   }
-  $('#tbSrc').innerHTML = grid.cached || Date.now() - gridAt > 3*3600000 ? `<span class="st-warn">${fmtDT(gridAt)} 取得</span>` : '';
+  $('#tbSrc').innerHTML = (grid.cached || Date.now() - gridAt > 3*3600000 ? `<span class="st-warn">${fmtDT(gridAt)} 取得</span>` : '') + (grid.waveSrc ? ` <span class="st-warn">${esc(grid.waveSrc)}</span>` : '');
   const t0 = grid.w[0].hourly.time, now = new Date(); now.setMinutes(0,0,0);
   const i0 = Math.max(0, t0.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`));
   $('#tbRange').min = i0; $('#tbRange').max = t0.length - 1;
@@ -2001,14 +2010,18 @@ async function loadPointWx0(){
   $('#wTable').innerHTML = '<tr><td class="note">読み込み中…</td></tr>';
   try{
     const q = `latitude=${ll[0].toFixed(3)}&longitude=${ll[1].toFixed(3)}&timezone=Asia%2FTokyo&forecast_days=3`;
-    const [w, m] = await Promise.all([
+    const [wr, mr] = await Promise.allSettled([
       getJson(`https://api.open-meteo.com/v1/forecast?${q}&hourly=weather_code,is_day,temperature_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,visibility&wind_speed_unit=ms`),
       getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height,wave_period,wave_direction,swell_wave_height,sea_surface_temperature`)
     ]);
     if (req !== wxReq) return; // あとから別の地点を頼んでいたら、この応答は使わない
-    if (w.data.error || !w.data.hourly) throw new Error(w.data.reason || 'bad');
-    wxData = {ll, w: w.data, m: m.data, at: Math.min(w.at, m.at), cached: w.cached || m.cached, label};
-    if (!wxData.cached) store.set('wx', wxData);
+    const w = wr.status === 'fulfilled' ? wr.value : null; if (!w || w.data.error || !w.data.hourly) throw new Error(w?.data?.reason || 'bad');
+    let m = mr.status === 'fulfilled' && mr.value.data?.hourly ? mr.value : null;
+    // 波だけ取れなかった：同じあたり（5km以内）の保存分があればそれを、無ければ波は欠測として、取れた風はそのまま使う
+    const sv = store.get('wx', null), svOk = !m && sv?.m?.hourly && distM(sv.ll, ll) < 5000;
+    if (!m) m = svOk ? {data: sv.m, at: sv.waveAt ?? sv.at, cached: true} : {data: {}, at: w.at, missing: true};
+    wxData = {ll, w: w.data, m: m.data, at: w.at, cached: w.cached, waveAt: m.at, waveCached: m.cached || undefined, waveMissing: m.missing || undefined, label};
+    if (!w.cached) store.set('wx', wxData);
   }catch(e){
     if (req !== wxReq) return;
     wxFailAt = Date.now();
@@ -2060,7 +2073,7 @@ function renderWx0(){
   const ageH = (Date.now() - wxData.at)/3600000;
   $('#wPlace').textContent = `${wxData.label || ''} ${fmtLL(wxData.ll[0], wxData.ll[1])}`;
   const s = sunTimes(new Date(), wxData.ll[0], wxData.ll[1]);
-  $('#wSun').innerHTML = `今日の日の出 ${hm(s.rise)}　日の入 ${hm(s.set)}<br>${wxData.cached || ageH > 3 ? `<b class="st-warn">⚠ ${fmtDT(wxData.at)} に取得した予報です（${wxData.cached ? '圏外のため保存分' : '古い予報'}）</b>` : `${fmtDT(wxData.at)} 取得`}`;
+  $('#wSun').innerHTML = `今日の日の出 ${hm(s.rise)}　日の入 ${hm(s.set)}<br>${wxData.cached || ageH > 3 ? `<b class="st-warn">⚠ ${fmtDT(wxData.at)} に取得した予報です（${wxData.cached ? '圏外のため保存分' : '古い予報'}）</b>` : `${fmtDT(wxData.at)} 取得`}${waveNote(wxData) ? `<br><b class="st-warn">⚠ ${waveNote(wxData)}</b>` : ''}`;
   if (i0 < 0 || ageH > 12){
     $('#wJudge').innerHTML = '<span class="note">予報が古いため判定しません</span>'; $('#wSlots').innerHTML = '';
     $('#wTable').innerHTML = '<tr><td class="note">保存してある予報の期間が過ぎています。電波のある所で「更新」を押してください。</td></tr>'; return;
@@ -2653,11 +2666,14 @@ function renderSafety(){
   renderReturnWx(); renderPortWx();
 }
 // 帰港予定までの予報の最悪値
-// 予報の鮮度の注意（保存分／3時間より古い／取り直しに失敗）。無ければ空
-function wxAgeNote(at, cached, failAt){
-  const old = Date.now() - at > 3*3600000, fail = failAt > at;
-  if (!cached && !old && !fail) return '';
-  return `<div class="st-warn" style="font-size:15px;font-weight:800">⚠ ${cached ? '保存予報' : '古い予報'}・${fmtDur((Date.now() - at)/60000)}前に取得${fail ? '／更新できません' : ''}</div>`;
+// 波だけ取れなかったときの注意（風は最新・波は保存分か欠測）
+const waveNote = o => o?.waveMissing ? '波は取得できませんでした（波の判定は未確認）' : o?.waveCached ? `波は保存分（${fmtDT(o.waveAt)} 取得）` : '';
+// 予報の鮮度の注意（保存分／3時間より古い／取り直しに失敗／波だけ保存分・欠測）。無ければ空
+function wxAgeNote(at, cached, failAt, o){
+  const old = Date.now() - at > 3*3600000, fail = failAt > at, wv = waveNote(o);
+  if (!cached && !old && !fail && !wv) return '';
+  const head = cached || old || fail ? `${cached ? '保存予報' : '古い予報'}・${fmtDur((Date.now() - at)/60000)}前に取得${fail ? '／更新できません' : ''}` : '風は最新';
+  return `<div class="st-warn" style="font-size:15px;font-weight:800">⚠ ${head}${wv ? '・' + wv : ''}</div>`;
 }
 function renderReturnWx(){
   const el = $('#sfWx'); if (!wxData || Date.now() - wxData.at > 12*3600000){ el.innerHTML = wxData ? '<b class="st-warn">予報が古いため、帰港予定までの判定はしません。電波のある所で天気タブの「更新」を</b>' : '帰港予定までの予報：取得中か圏外です'; return; }
@@ -2675,7 +2691,7 @@ function renderReturnWx(){
       その地点の判定：${LV_TEXT[wst]}　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m</details>`;
     return;
   }
-  el.innerHTML = `<b>釣り場</b>（〜帰港予定 ${hm(end)}）：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m　<span class="note">${hm(new Date(wxData.at))}取得</span>${wxAgeNote(wxData.at, wxData.cached, wxFailAt)}${wxMoved() ? `<br><b class="st-warn">${esc(place)}</b>` : ''}${wxReasons(h, mh, idx, end)}
+  el.innerHTML = `<b>釣り場</b>（〜帰港予定 ${hm(end)}）：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m　<span class="note">${hm(new Date(wxData.at))}取得</span>${wxAgeNote(wxData.at, wxData.cached, wxFailAt, wxData)}${wxMoved() ? `<br><b class="st-warn">${esc(place)}</b>` : ''}${wxReasons(h, mh, idx, end)}
     <details class="note"><summary style="min-height:40px;display:flex;align-items:center">予報の詳細</summary>${esc(place)} ${fmtLL(wxData.ll[0], wxData.ll[1])}・${fmtDT(wxData.at)} 取得${me ? `・現在地から${fmtDist(distM([me.lat, me.lon], wxData.ll))}` : ''}</details>`;
 }
 // ×や？の理由（雷・強い突風・視界不良・欠測）と、予報が帰港予定まで届いているか
@@ -2702,7 +2718,7 @@ async function renderPortWx(){
     const req = ++portReq;
     try{
       const q = `latitude=${tgt.lat.toFixed(3)}&longitude=${tgt.lon.toFixed(3)}&timezone=Asia%2FTokyo&forecast_days=2`;
-      const [w, m] = await Promise.all([getJson(`https://api.open-meteo.com/v1/forecast?${q}&hourly=weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&wind_speed_unit=ms`), getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height`).catch(() => ({data:{}, at:Date.now()}))]);
+      const [w, m] = await Promise.all([getJson(`https://api.open-meteo.com/v1/forecast?${q}&hourly=weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&wind_speed_unit=ms`), getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height,wave_direction,wave_period`).catch(() => ({data:{}, at:Date.now()}))]);
       if (req !== portReq) return;
       portWx = {lat:tgt.lat, lon:tgt.lon, at:Math.min(w.at, m.at), cached: !!(w.cached || m.cached), w:w.data, m:m.data}; store.set('portWx', portWx);
     }catch(e){ if (req === portReq) renderPortWx.failAt = Date.now(); }
@@ -2715,7 +2731,11 @@ async function renderPortWx(){
   if (!idx.length){ el.textContent = ''; return; }
   const lvs = idx.map(i => hourLevel(h, mh, i).lv), wst = lvs.includes('r') ? 'r' : lvs.includes('n') ? 'n' : lvs.includes('y') ? 'y' : 'g';
   const mx = a => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
-  el.innerHTML = `<b>帰る先 ${esc(name)}</b>：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m　<span class="note">${hm(new Date(portWx.at))}取得</span>${wxReasons(h, mh, idx, end)}
+  const at = (arr, i) => i == null ? '' : `${pad(new Date(h.time[i]).getHours())}時`;
+  const iW = idx.reduce((b, i) => (h.wind_speed_10m[i] ?? -1) > (h.wind_speed_10m[b] ?? -1) ? i : b, idx[0]), iV = idx.reduce((b, i) => (mh.wave_height?.[i] ?? -1) > (mh.wave_height?.[b] ?? -1) ? i : b, idx[0]);
+  const wDir = h.wind_direction_10m?.[iW], vDir = mh.wave_direction?.[iV], vPer = mh.wave_period?.[iV];
+  el.innerHTML = `<b>帰る先 ${esc(name)}</b>：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m
+    <div class="note" style="color:var(--text)">最大風は${at(h, iW)}${wDir != null ? `・${dir16(wDir)}から` : '・向き不明'}${mh.wave_height?.[iV] != null ? `　最大波は${at(h, iV)}${vDir != null ? `・${dir16(vDir)}から` : ''}${vPer ? `・周期${vPer.toFixed(0)}s` : ''}` : ''}</div>　<span class="note">${hm(new Date(portWx.at))}取得</span>${wxReasons(h, mh, idx, end)}
     ${wxAgeNote(portWx.at, portWx.cached, renderPortWx.failAt || 0)}<details class="note"><summary style="min-height:40px;display:flex;align-items:center">予報の詳細</summary>${esc(name)} ${fmtLL(portWx.lat, portWx.lon)}・${fmtDT(portWx.at)} 取得</details>`;
 }
 $('#sfChecks').onchange = e => { const i = +e.target.dataset.ck, today = ymd(new Date()), st = store.get('checks', {}); let c = st.d === today ? st.c : []; c = e.target.checked ? [...new Set(c.concat(i))] : c.filter(x => x !== i); store.set('checks', {d:today, c}); };
@@ -2860,6 +2880,7 @@ document.addEventListener('visibilitychange', () => { applyWake(); if (document.
 $('#sHelp').onclick = () => $('#help').classList.add('show');
 $('#onbMore').onclick = () => { $('#onb').classList.remove('show'); store.set('onb', 1); $('#help').classList.add('show'); };
 $('#helpX').onclick = () => $('#help').classList.remove('show');
+$('#hMob').onclick = () => { $('#help').classList.remove('show'); $('#fMob').click(); };
 $('#onbOk').onclick = () => { $('#onb').classList.remove('show'); store.set('onb', 1); unlockAudio(); };
 
 // オフライン地図の先読み（地理院 淡色 z10〜14）
