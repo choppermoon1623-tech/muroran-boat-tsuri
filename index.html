@@ -39,7 +39,8 @@ body.night #toast .btn{background:#300;color:#ff9a9a;border-color:#ff4040}
 body.night .leaflet-control,body.night .leaflet-popup-content-wrapper,body.night .leaflet-popup-tip{filter:invert(1) sepia(1) hue-rotate(-50deg) saturate(3) brightness(.7)}
 body.night .fab.mob,body.night .sosBtn{background:#600;color:#ffd0d0}
 body.night #globalAlert.info{background:#200}
-body.night #tabs span,body.night .fab i,body.night .cp,body.night #catchBtn{filter:grayscale(.6)}
+body.night .cp,body.night #catchBtn{filter:grayscale(.6)}
+body.night #tabs span,body.night .fab i{filter:grayscale(1) sepia(1) saturate(5) hue-rotate(-50deg) brightness(.7)} /* 夜はアイコンも赤一色に */
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;-webkit-tap-highlight-color:transparent;overscroll-behavior:none;-webkit-text-size-adjust:100%}
 button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
@@ -164,9 +165,9 @@ h3{font-size:15px;margin:18px 0 8px;color:var(--sub)}
 .btn.wide{width:100%}
 .note{font-size:14px;color:var(--sub);line-height:1.55} /* 船上でも読めるよう補足も14px */
 .big{font-size:28px;font-weight:900}
-table.fc{border-collapse:collapse;font-size:13px;width:100%}
+table.fc{border-collapse:collapse;font-size:14px;width:100%}
 table.fc th,table.fc td{padding:6px 3px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
-table.fc th{position:sticky;top:-14px;background:var(--panel2);font-weight:700;color:var(--sub);font-size:12px}
+table.fc th{position:sticky;top:-14px;background:var(--panel2);font-weight:700;color:var(--sub);font-size:13px}
 .day td{background:var(--panel2);text-align:left;font-weight:800}
 .g{color:var(--good)}.y{color:var(--warn)}.r{color:var(--bad)}
 .dot{display:inline-block;width:12px;height:12px;border-radius:50%}
@@ -213,8 +214,8 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
 .pin i{transform:rotate(45deg);font-style:normal;font-size:13px;font-weight:900;color:#111}
 .pin.mob{animation:blink 1s infinite}
 @keyframes blink{50%{opacity:.3}}
-.wind-ic{font-weight:800;font-size:12px;text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000;color:#fff;text-align:center;line-height:1}
-.wave-ic{font-weight:800;font-size:12px;border-radius:6px;padding:1px 3px;color:#111;text-align:center}
+.wind-ic{font-weight:800;font-size:14px;text-shadow:0 0 3px #000,0 0 3px #000,0 0 3px #000;color:#fff;text-align:center;line-height:1}
+.wave-ic{font-weight:800;font-size:14px;border-radius:6px;padding:1px 3px;color:#111;text-align:center}
 #toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(var(--barH,96px) + 10px);z-index:3000;background:#fff;color:#111;border-radius:12px;padding:12px 14px;font-weight:800;display:none;width:max-content;max-width:92vw;box-shadow:0 4px 20px rgba(0,0,0,.5);font-size:15px;white-space:pre-line}
 .sheet h2{margin-right:66px}
 #toast.alert{background:var(--warn)}
@@ -1263,7 +1264,7 @@ function updateMode(){
     // この流しの釣果に印
     points.filter(x => x.type === 'catch' && x.cond?.driftId && (x.cond.driftId === drift?.id || todayDrifts().a.some(h => h.id === x.cond.driftId))).forEach(x => L.circleMarker([x.lat, x.lon], {radius:9, color:'#ff8a3d', weight:3, fill:false, interactive:false}).addTo(modeLayer));
     panel('drift', `<div class="mpGrid">
-      <div><div class="k">流される速さ<br><span style="font-size:12px" id="mdSpK">直近1分の平均</span></div><div class="v" id="mdSp">--</div></div>
+      <div><div class="k">流される速さ<br><span style="font-size:14px" id="mdSpK">直近1分の平均</span></div><div class="v" id="mdSp">--</div></div>
       <div><div class="k">流れる向き</div><div class="v" style="font-size:18px" id="mdDir">--</div></div>
       <div><div class="k">流し始めから</div><div class="v" style="font-size:18px" id="mdDist">--</div></div></div>
       <div class="row" style="margin-top:6px;flex-wrap:nowrap"><button class="btn sm" id="mdBack" style="flex:1">↺ 終えて始点へ戻る</button><button class="btn sm pri" id="mdRestart" style="flex:1">▶ ここから流し直す</button></div>
@@ -1913,10 +1914,11 @@ async function fetchGrid(){
     // 風が取れない：保存分の格子を使い、波は取れていて同じ格子なら最新に差し替える
     grid = Object.assign(sv.grid, {cached: true}); gridAt = sv.at;
     if (m && same) Object.assign(grid, {m: [].concat(m.data), waveAt: m.at, waveCached: m.cached || undefined, waveMissing: undefined});
-  } else { grid = null; $('#tbSrc').textContent = '予報を取得できません'; $('#vWind').textContent = '取得できず'; $('#vWave').textContent = '--'; return; }
+  } else if (m){ const md = [].concat(m.data); grid = {pts, w: md.map(x => emptyWind(x?.hourly?.time)), m: md, cached: false, windMissing: true, waveAt: m.at, waveCached: m.cached || undefined}; gridAt = m.at; }
+  else { grid = null; $('#tbSrc').textContent = '予報を取得できません'; $('#vWind').textContent = '取得できず'; $('#vWave').textContent = '--'; return; }
   grid.at = gridAt; dropOldWave(grid);
-  if (!grid.cached) store.set('grid', {at:gridAt, grid});
-  $('#tbSrc').innerHTML = (grid.cached || Date.now() - gridAt > 3*3600000 ? `<span class="st-warn">${grid.cached ? '風は保存分 ' : ''}${fmtDT(gridAt)} 取得</span>` : '') + (waveNote(grid) ? ` <span class="st-warn">${esc(waveNote(grid))}</span>` : '');
+  if (!grid.cached && !grid.windMissing) store.set('grid', {at:gridAt, grid});
+  $('#tbSrc').innerHTML = (grid.cached || Date.now() - gridAt > 3*3600000 ? `<span class="st-warn">${grid.cached ? '風は保存分 ' : ''}${fmtDT(gridAt)} 取得</span>` : '') + (grid.windMissing ? ' <span class="st-warn">風は取得できませんでした</span>' : '') + (waveNote(grid) ? ` <span class="st-warn">${esc(waveNote(grid))}</span>` : '');
   const t0 = grid.w[0].hourly.time, now = new Date(); now.setMinutes(0,0,0);
   const i0 = Math.max(0, t0.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`));
   $('#tbRange').min = i0; $('#tbRange').max = t0.length - 1;
@@ -1947,10 +1949,10 @@ function msilPts(){
 let gridSoonT = null;
 function drawGridSoon(){ if (!(shownOver.has('wind') || shownOver.has('wave')) || gridSoonT) return; gridSoonT = setTimeout(() => { gridSoonT = null; drawGrid(); }, 3000); }
 function drawGrid(){
-  if (!grid) return;
+  if (!grid) return; dropOldWave(grid);
   const i = +$('#tbRange').value, t = grid.w[0].hourly.time[i];
   if (!t) return;
-  const d = new Date(t), expired = Date.now() - gridAt > 12*3600000;
+  const d = new Date(t), expired = wxDead(grid);
   if (expired){ windLayer.clearLayers(); waveLayer.clearLayers(); $('#tbLabel').textContent = '予報が古いため表示しません'; return; }
   $('#tbLabel').textContent = `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]}) ${pad(d.getHours())}時`;
   windLayer.clearLayers(); waveLayer.clearLayers();
@@ -1970,7 +1972,7 @@ function drawGrid(){
     if (sp != null && dir != null) L.marker(p, {interactive:false, icon:L.divIcon({className:'', iconSize:[44,46], iconAnchor:[22,23], html:
       `<div class="wind-ic"><svg width="30" height="30" viewBox="0 0 28 28" style="transform:rotate(${dir + 180}deg)"><path d="M14 2 L21 14 L16 13 L16 26 L12 26 L12 13 L7 14 Z" fill="${col}" stroke="#000" stroke-width="1"/></svg><br>${sp.toFixed(0)}<span style="opacity:.85">(${gu == null ? '—' : gu.toFixed(0)})</span>${gu == null || h.weather_code?.[i] == null || h.visibility?.[i] == null ? '<b style="color:#ffc53d">?</b>' : ''}</div>`})}).addTo(windLayer);
     const wh = mhOf(grid.w[k], grid.m[k]).wave_height?.[i];
-    if (wh != null) L.marker(p, {interactive:false, icon:L.divIcon({className:'', iconSize:[38,16], iconAnchor:[19,-26], html:
+    if (wh != null) L.marker(p, {interactive:false, icon:L.divIcon({className:'', iconSize:[46,20], iconAnchor:[23,-26], html:
       `<div class="wave-ic" style="background:${levelHex(levelCls(wh, settings.waveG, settings.waveY))}">${wh.toFixed(1)}m</div>`})}).addTo(waveLayer);
   });
 }
@@ -1993,13 +1995,13 @@ function windLevel(h, i){
   return lv;
 }
 function updateBarWx(){
-  if (!grid) return;
+  if (!grid) return; dropOldWave(grid);
   const ll = me ? [me.lat, me.lon] : [map.getCenter().lat, map.getCenter().lng];
   const k = nearestGridIdx(ll), now = new Date(); now.setMinutes(0,0,0);
   const i = grid.w[k].hourly.time.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`);
-  if (i < 0 || Date.now() - gridAt > 12*3600000){ $('#vWind').textContent = '予報が古い'; $('#vWave').textContent = '--'; return; }
+  if (i < 0 || wxDead(grid)){ $('#vWind').textContent = '予報が古い'; $('#vWave').textContent = '--'; return; }
   const h = grid.w[k].hourly, wh = mhOf(grid.w[k], grid.m[k]).wave_height?.[i], old = Date.now() - gridAt > 6*3600000 ? '<small class="st-warn">古</small>' : '';
-  $('#vWind').innerHTML = h.wind_speed_10m[i] == null ? '欠測' : `<span class="${windLevel(h, i)}">${h.wind_direction_10m[i] != null ? dir16(h.wind_direction_10m[i]) : '風向?'} ${h.wind_speed_10m[i].toFixed(0)}m/s</span><small>・瞬${h.wind_gusts_10m[i]?.toFixed(0) ?? '-'}</small>${old}`;
+  $('#vWind').innerHTML = h.wind_speed_10m[i] == null ? (grid.windMissing ? '<small class="st-warn">取れず</small>' : '欠測') : `<span class="${windLevel(h, i)}">${h.wind_direction_10m[i] != null ? dir16(h.wind_direction_10m[i]) : '風向?'} ${h.wind_speed_10m[i].toFixed(0)}m/s</span><small>・瞬${h.wind_gusts_10m[i]?.toFixed(0) ?? '-'}</small>${old}`;
   dropOldWave(grid);
   const wOld = grid.waveCached || Date.now() - (grid.waveAt ?? gridAt) > 3*3600000 ? '<small class="st-warn">保存</small>' : '';
   $('#vWave').innerHTML = wh == null ? (grid.waveMissing ? '<small class="st-warn">取れず</small>' : '--') : `<span class="${levelCls(wh, settings.waveG, settings.waveY)}">${wh.toFixed(1)}m</span>${wOld || old}`;
@@ -2023,10 +2025,11 @@ async function loadPointWx0(){
     const w = wr.status === 'fulfilled' && !wr.value.data?.error && wr.value.data?.hourly ? wr.value : null;
     const mFresh = mr.status === 'fulfilled' && mr.value.data?.hourly ? mr.value : null;
     const sv = store.get('wx', null), near = sv && distM(sv.ll, ll) < 5000;
-    if (!w){ // 風（気象）が取れない：保存分の風を使い、波は取れていれば最新に差し替える
-      if (!sv) throw new Error('bad');
+    if (!w){ // 風（気象）が取れない：同じあたりの保存分の風を使い、波は取れていれば最新に差し替える。保存分も無ければ波だけで出す
       wxFailAt = Date.now();
-      wxData = Object.assign(sv, {cached:true}, mFresh && near ? {m: mFresh.data, waveAt: mFresh.at, waveCached: mFresh.cached || undefined, waveMissing: undefined} : {});
+      if (sv && (near || !mFresh)) wxData = Object.assign(sv, {cached:true}, mFresh && near ? {m: mFresh.data, waveAt: mFresh.at, waveCached: mFresh.cached || undefined, waveMissing: undefined} : {});
+      else if (mFresh) wxData = {ll, w: emptyWind(mFresh.data.hourly.time), m: mFresh.data, at: mFresh.at, cached: false, windMissing: true, waveAt: mFresh.at, waveCached: mFresh.cached || undefined, label};
+      else throw new Error('bad');
     } else {
       // 波が取れない：同じあたり（5km以内）の保存分があればそれを、無ければ波は欠測として、取れた風はそのまま使う
       const m = mFresh || (near && sv.m?.hourly && !sv.waveMissing ? {data: sv.m, at: sv.waveAt ?? sv.at, cached: true} : {data: {}, at: w.at, missing: true});
@@ -2080,14 +2083,15 @@ function renderWx(){
   $('#wJudge').innerHTML = `<span class="note">現在地の判定：取得できません</span><div class="note" style="font-size:14px">${wxLoading ? '取り直しています。' : wxFailAt > wxData.at ? '再取得に失敗しました（圏外など）。' : '地点が変わりました。天気タブを開き直すと取り直します。'}下の時間帯・表は<b>以前の地点の予報</b>です（湾内と外海で大きく違うことがあります）</div>`;
 }
 function renderWx0(){
+  dropOldWave(wxData);
   const {w, m} = wxData, h = w.hourly, mh = mhOf(w, m);
   const now = new Date(); now.setMinutes(0,0,0);
   const i0 = h.time.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`);
   const ageH = (Date.now() - wxData.at)/3600000;
   $('#wPlace').textContent = `${wxData.label || ''} ${fmtLL(wxData.ll[0], wxData.ll[1])}`;
   const s = sunTimes(new Date(), wxData.ll[0], wxData.ll[1]);
-  $('#wSun').innerHTML = `今日の日の出 ${hm(s.rise)}　日の入 ${hm(s.set)}<br>${wxData.cached || ageH > 3 ? `<b class="st-warn">⚠ ${fmtDT(wxData.at)} に取得した予報です（${wxData.cached ? '圏外のため保存分' : '古い予報'}）</b>` : `${fmtDT(wxData.at)} 取得`}${waveNote(wxData) ? `<br><b class="st-warn">⚠ ${waveNote(wxData)}</b>` : ''}`;
-  if (i0 < 0 || ageH > 12){
+  $('#wSun').innerHTML = `今日の日の出 ${hm(s.rise)}　日の入 ${hm(s.set)}<br>${wxData.cached || ageH > 3 ? `<b class="st-warn">⚠ ${fmtDT(wxData.at)} に取得した予報です（${wxData.cached ? '圏外のため保存分' : '古い予報'}）</b>` : `${fmtDT(wxData.at)} 取得`}${wxData.windMissing ? '<br><b class="st-warn">⚠ 風は取得できませんでした（風の判定は未確認）</b>' : ''}${waveNote(wxData) ? `<br><b class="st-warn">⚠ ${waveNote(wxData)}</b>` : ''}`;
+  if (i0 < 0 || wxDead(wxData)){
     $('#wJudge').innerHTML = '<span class="note">予報が古いため判定しません</span>'; $('#wSlots').innerHTML = '';
     $('#wTable').innerHTML = '<tr><td class="note">保存してある予報の期間が過ぎています。電波のある所で「更新」を押してください。</td></tr>'; return;
   }
@@ -2680,19 +2684,28 @@ function renderSafety(){
 }
 // 帰港予定までの予報の最悪値
 const WX_MAX = 12*3600000; // これより古い予報は判定に使わない
-// 波が古すぎたら外して「欠測」にする（風とは別に判定）
-function dropOldWave(o){ if (o && !o.waveMissing && Date.now() - (o.waveAt ?? o.at) > WX_MAX){ o.m = Array.isArray(o.m) ? o.m.map(() => ({})) : {}; o.waveMissing = true; } return o; }
+// 風が取れないときの器（時刻だけあって値はすべて欠測）。表・判定は欠測として扱う
+const WIND_KEYS = ['weather_code','is_day','temperature_2m','precipitation','wind_speed_10m','wind_direction_10m','wind_gusts_10m','pressure_msl','visibility'];
+function emptyWind(time){ const h = {time: time || []}; WIND_KEYS.forEach(k => h[k] = h.time.map(() => null)); return {hourly: h}; }
+// 古すぎる側（12時間超）を外して「欠測」にする。風と波は別々に判定。表示のたびに呼ぶ
+function dropOldWave(o){
+  if (!o) return o;
+  if (!o.waveMissing && Date.now() - (o.waveAt ?? o.at) > WX_MAX){ o.m = Array.isArray(o.m) ? o.m.map(() => ({})) : {}; o.waveMissing = true; }
+  if (!o.windMissing && Date.now() - o.at > WX_MAX){ o.w = Array.isArray(o.w) ? o.w.map(x => emptyWind(x?.hourly?.time)) : emptyWind(o.w?.hourly?.time); o.windMissing = true; }
+  return o;
+}
+const wxDead = o => !o || (o.windMissing && o.waveMissing); // 風も波も使えない
 // 波だけ取れなかったときの注意（風は最新・波は保存分か欠測）
 const waveNote = o => o?.waveMissing ? '波は取得できませんでした（波の判定は未確認）' : o?.waveCached || (o?.waveAt && Date.now() - o.waveAt > 3*3600000) ? `波は${o.waveCached ? '保存分' : '古い予報'}（${fmtDT(o.waveAt)} 取得）` : '';
 // 予報の鮮度の注意（保存分／3時間より古い／取り直しに失敗／波だけ保存分・欠測）。無ければ空
 function wxAgeNote(at, cached, failAt, o){
   const old = Date.now() - at > 3*3600000, fail = failAt > at, wv = waveNote(o);
-  if (!cached && !old && !fail && !wv) return '';
-  const head = cached || old || fail ? `${cached ? '保存予報' : '古い予報'}・${fmtDur((Date.now() - at)/60000)}前に取得${fail ? '／更新できません' : ''}` : '風は最新';
+  if (!cached && !old && !fail && !wv && !o?.windMissing) return '';
+  const head = o?.windMissing ? `風は取得できませんでした（風の判定は未確認）${fail ? '／更新できません' : ''}` : cached || old || fail ? `${cached ? '保存予報' : '古い予報'}・${fmtDur((Date.now() - at)/60000)}前に取得${fail ? '／更新できません' : ''}` : '風は最新';
   return `<div class="st-warn" style="font-size:15px;font-weight:800">⚠ ${head}${wv ? '・' + wv : ''}</div>`;
 }
 function renderReturnWx(){
-  const el = $('#sfWx'); dropOldWave(wxData); if (!wxData || Date.now() - wxData.at > WX_MAX){ el.innerHTML = wxData ? '<b class="st-warn">予報が古いため、帰港予定までの判定はしません。電波のある所で天気タブの「更新」を</b>' : '帰港予定までの予報：取得中か圏外です'; return; }
+  const el = $('#sfWx'); dropOldWave(wxData); if (wxDead(wxData)){ el.innerHTML = wxData ? '<b class="st-warn">予報が古いため、帰港予定までの判定はしません。電波のある所で天気タブの「更新」を</b>' : '帰港予定までの予報：取得中か圏外です'; return; }
   const [H, M] = ($('#sfReturn').value || '').split(':').map(Number); if (!isFinite(H)) return;
   const end = new Date(); end.setHours(H, M || 0, 0, 0); if (end < new Date()) end.setDate(end.getDate() + 1);
   const h = wxData.w.hourly, mh = mhOf(wxData.w, wxData.m), idx = h.time.map((t, i) => [new Date(t), i]).filter(([t]) => t >= new Date(Date.now() - 3600000) && t <= end).map(x => x[1]);
@@ -2740,12 +2753,15 @@ async function renderPortWx(){
       const same = portWx && distM([portWx.lat, portWx.lon], [tgt.lat, tgt.lon]) <= 200;
       if (w){ const mm = m || (same && !portWx.waveMissing ? {data: portWx.m, at: portWx.waveAt ?? portWx.at, cached: true} : null);
         portWx = {lat:tgt.lat, lon:tgt.lon, at:w.at, cached: !!w.cached, w:w.data, m: mm ? mm.data : {}, waveAt: mm ? mm.at : w.at, waveCached: mm?.cached || undefined, waveMissing: mm ? undefined : true}; }
-      else { renderPortWx.failAt = Date.now(); if (same && m) Object.assign(portWx, {m: m.data, waveAt: m.at, waveCached: m.cached || undefined, waveMissing: undefined}); }
+      else { renderPortWx.failAt = Date.now();
+        if (same && m) Object.assign(portWx, {m: m.data, waveAt: m.at, waveCached: m.cached || undefined, waveMissing: undefined});
+        else if (!same && m) portWx = {lat:tgt.lat, lon:tgt.lon, at:m.at, cached:false, w: emptyWind(m.data.hourly.time), m: m.data, windMissing: true, waveAt: m.at, waveCached: m.cached || undefined}; }
       if (portWx){ dropOldWave(portWx); store.set('portWx', portWx); }
     }catch(e){ if (req === portReq) renderPortWx.failAt = Date.now(); }
   }
   if (!portWx || distM([portWx.lat, portWx.lon], [tgt.lat, tgt.lon]) > 200){ el.innerHTML = `帰る先（${esc(name)}）の予報：取得できません（圏外？）。この港の予報はまだありません`; return; }
-  if (Date.now() - portWx.at > 12*3600000){ el.innerHTML = `<b class="st-warn">帰る先（${esc(name)}）の予報が古いため判定しません</b>`; return; }
+  dropOldWave(portWx);
+  if (wxDead(portWx)){ el.innerHTML = `<b class="st-warn">帰る先（${esc(name)}）の予報が古いため判定しません</b>`; return; }
   const [H, M] = ($('#sfReturn').value || '').split(':').map(Number), end = new Date(); end.setHours(H || 0, M || 0, 0, 0); if (end < new Date()) end.setDate(end.getDate() + 1);
   const h = portWx.w.hourly, mh = mhOf(portWx.w, portWx.m); if (!h) return;
   const idx = h.time.map((t, i) => [new Date(t), i]).filter(([t]) => t >= new Date(Date.now() - 3600000) && t <= end).map(x => x[1]);
