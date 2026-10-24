@@ -456,7 +456,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
     <div class="note" id="sfWx" style="margin-top:8px"></div>
     <div class="note" id="sfWxPort" style="margin-top:6px"></div>
     <label class="f">行き先・メモ</label><input id="sfMemo" placeholder="例：地球岬沖でソイ">
-    <div class="row" style="margin-top:10px;flex-wrap:nowrap"><button class="btn pri" id="sfDepart" style="flex:1.4">📤 出港の連絡</button><button class="btn" id="sfArrive" style="flex:1">⚓ 帰港の連絡</button></div>
+    <div class="row" style="margin-top:10px;flex-wrap:nowrap"><button class="btn pri" id="sfDepart" style="flex:1.4">📤 出港の連絡</button><button class="btn" id="sfTripStart" style="flex:1">⚓ 釣行を開始</button><button class="btn" id="sfArrive" style="flex:1">⚓ 帰港の連絡</button></div>
     <p class="note">LINEやメールなどの共有先を選べます。送る文には「帰港予定を過ぎても連絡が取れない場合は118番へ相談を」と入ります。帰ったら「帰港の連絡」を。</p>
   </div>
   <div class="card">
@@ -531,7 +531,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
       <li><b>流し</b>：直近1分の流される速さと向き。「ここから流し直す」で区切り、「流し始めに戻る」で始点へ案内。流した筋は今日のうちは灰色で残ります。</li>
       <li><b>かかり</b>：「⚓ 錨位置を記録」（または地図で指定）で見張り開始。警報の距離を超えると音と振動。「🔇 消音」は音と振動を止め、赤い警告と距離は残ります。警報の距離はあとから変えられます。</li>
       <li><b>📍＋地点</b>：赤い十字を合わせて「ここに決める」でポイント登録。地図の長押しでも登録・そこへ向かう・その場所の天気。</li>
-      <li><b>右のボタン</b>：落水（MOB＝人が海に落ちた時。押した瞬間の位置を記録し、記録して案内。地図では右上、ほかの画面では右下。押すと「対応を終了」するまで赤い枠が出続けます）・追従・地図の表示切り替え（等深線・魚礁・定置網など）・帰港（母港・港口へ）・安全（118番・現在地送信・出港連絡）。</li>
+      <li><b>右のボタン</b>（はじめは「落水・追従・その他」だけ。「その他」を押すと表示・＋地点・帰港・安全が出ます）：落水（MOB＝人が海に落ちた時。押した瞬間の位置を記録し、記録して案内。地図では右上、ほかの画面では右下。押すと「対応を終了」するまで赤い枠が出続けます）・追従・地図の表示切り替え（等深線・魚礁・定置網など）・帰港（母港・港口へ）・安全（118番・現在地送信・出港連絡）。</li>
       <li><b>記録タブ</b>：釣果やポイントの一覧と検索、航跡、バックアップ。</li>
       <li><b>夜釣り</b>：設定の「夜釣りモード」で赤い画面に。</li>
       <li>画面を消したりほかのアプリに切り替えると、GPS・航跡・走錨の見張りが止まる端末があります。見張り中は「画面を消さない」設定をおすすめします。</li>
@@ -759,7 +759,7 @@ function setBase(id){
   if (curBase) map.removeLayer(curBase);
   curBase = b[3].addTo(map); curBase.bringToBack();
   if (!curBase._failHook){ curBase._failHook = true; curBase.on('tileerror', () => { tileFails.push(Date.now()); tileFails = tileFails.slice(-10);
-    if (tileFails.filter(t => Date.now() - t < 60000).length === 4 && map.getZoom() > OFF_MAXZ) toast('地図を取得できません（電波が弱い・圏外など）', true, 0, [['保存した倍率へ戻る', () => map.setZoom(OFF_MAXZ)], ['このまま', () => {}]]); }); }
+    if (tileFails.filter(t => Date.now() - t < 60000).length === 4 && map.getZoom() > OFF_MAXZ) toast('地図を取得できません（電波が弱い・圏外など）', true, 0, [['保存した淡色地図へ戻る', goSavedMap], ['このまま', () => {}]]); }); }
   store.set('base', b[0]); renderLayerSheet();
 }
 
@@ -898,7 +898,7 @@ $('#shade').onclick = hideBs;
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = hideBs);
 $('#fLayers').onclick = () => { renderLayerSheet(); showBs('#bsLayers'); };
 const setFabsMin = (v, noSave) => { document.body.classList.toggle('fabsMin', v); const auto = document.body.classList.contains('fabsAuto'); $('#fMore').innerHTML = auto ? '<i>⋯</i>その他' : v ? '<i>⋯</i>開く' : '<i>︿</i>畳む'; if (noSave) return; $('#fMore').setAttribute('aria-label', v ? '右の操作を開く' : '右の操作を畳んで地図を広く'); store.set('fabsMin', v); };
-setFabsMin(store.get('fabsMin', false));
+setFabsMin(store.get('fabsMin', true));
 $('#fMore').onclick = () => innerHeight > 600 && !document.body.classList.contains('fabsAuto') ? setFabsMin(!document.body.classList.contains('fabsMin')) : toast('そのほかの操作', false, 0, [['🗺 表示', () => $('#fLayers').click()], ['📍 ＋地点', () => $('#fAdd').click()], ['⚓ 帰港', () => $('#fHome').click()], ['🆘 安全', () => $('#fSafety').click()]]);
 
 // ===== 地点 =====
@@ -986,7 +986,7 @@ function onPos(pos){
   renderInstruments();
   if (!meMarker){ meMarker = L.marker(ll, {icon:meIcon(null), zIndexOffset:1000, interactive:false}).addTo(map); accCircle = L.circle(ll, {radius:c.accuracy, weight:1, color:'#3fb8ff', fillOpacity:.08, interactive:false}).addTo(map); if (follow) map.setView(ll, Math.max(map.getZoom(), 14)); }
   meMarker.setLatLng(ll).setIcon(meIcon(cogNow())); accCircle.setLatLng(ll).setRadius(c.accuracy);
-  if (follow) map.panTo(ll, {animate:true});
+  if (follow) map.panTo(followCenter(ll), {animate:true});
   if (poor) trkBreak = true; else { recordTrack(ll, now, gapFix || jump || trkBreak); trkBreak = false; }
   modeOnFix(ll, now, gapFix || brk);
   updateNav(); updateMode(); checkNear();
@@ -1482,10 +1482,24 @@ async function fillCond(id){
     if (!q2 || q2.lat !== p.lat || q2.lon !== p.lon || q2.time !== p.time) return;
     const H = w.data.hourly, M = m.data.hourly || {};
     const c = Object.assign({}, q2, {cond: Object.assign({}, q2.cond || {}, {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], temp: H.temperature_2m[i], pres: H.pressure_msl[i],
-      wave: j >= 0 ? M.wave_height?.[j] : null, sst: j >= 0 ? M.sea_surface_temperature?.[j] : null, wxSrc:'モデル値', wxCached: w.cached})});
+      wave: j >= 0 ? M.wave_height?.[j] : null, sst: j >= 0 ? M.sea_surface_temperature?.[j] : null, wxSrc:'モデル値', wxCached: w.cached, wxPending: undefined, wxFrom: undefined, wxAt: undefined})});
     commitPoints(points.map(x => x.id === id ? c : x));
-  }catch(e){ /* 圏外：潮だけ残る */ }
+  }catch(e){ fillCondSaved(id); }
 }
+// 保存してある予報（10km以内・同じ時刻）から風・波を付ける。付けられなければ「未取得」の印を残す
+function fillCondSaved(id){
+  const p = points.find(x => x.id === id); if (!p) return;
+  const d = new Date(p.time), key = `${ymd(d)}T${pad(d.getHours())}:00`;
+  const src = [wxData && {w:wxData.w, m:wxData.m, ll:wxData.ll, at:wxData.at}, ...(grid ? grid.pts.map((ll, k) => ({w:grid.w[k], m:grid.m[k], ll, at:gridAt})) : [])].filter(x => x && x.w?.hourly)
+    .map(x => Object.assign(x, {d: distM([p.lat, p.lon], x.ll)})).filter(x => x.d < 10000).sort((a, b) => a.d - b.d)[0];
+  const i = src ? src.w.hourly.time.indexOf(key) : -1;
+  if (i < 0){ if (!p.cond?.wxPending) commitPoints(points.map(x => x.id === id ? Object.assign({}, x, {cond: Object.assign({}, x.cond || {}, {wxPending:true})}) : x)); return; }
+  const H = src.w.hourly, M = mhOf(src.w, src.m);
+  commitPoints(points.map(x => x.id === id ? Object.assign({}, x, {cond: Object.assign({}, x.cond || {}, {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], wave: M.wave_height?.[i] ?? null,
+    wxSrc:'モデル値（保存予報）', wxAt: src.at, wxFrom: `${Math.round(src.d/100)/10}km先の予報地点`, wxPending:true})}) : x));
+}
+// 電波が戻ったら、未取得・保存予報で付けた釣果の気象を取り直す（3日以内・最大20件）
+function refillPending(){ points.filter(p => p.cond?.wxPending && Date.now() - p.time < 3*86400000).slice(-20).forEach((p, k) => setTimeout(() => fillCond(p.id), k*1500)); }
 
 // ===== 釣れた（ワンタップ） =====
 let qcCount = 1;
@@ -1620,12 +1634,35 @@ function setNav(p){
   $('#navBox').innerHTML = '';
   $('#navBox').style.display = navTarget ? 'block' : 'none';
   updateNav();
-  if (navTarget){
-    if (me){ const mr = $('#map').getBoundingClientRect(), nb = $('#navBox').getBoundingClientRect(), fb = document.querySelector('.fabs').getBoundingClientRect(), db = $('#bottomDock').getBoundingClientRect();
-      const top = Math.max(20, nb.bottom - mr.top + 16), right = Math.max(20, fb.width ? mr.right - fb.left + 12 : 20), bottom = Math.max(20, mr.bottom - db.top + 16);
-      settleMap(), map.fitBounds(L.latLngBounds([[me.lat, me.lon], [navTarget.lat, navTarget.lon]]), {paddingTopLeft:[24, top], paddingBottomRight:[right, bottom], maxZoom: !useSaved() ? 15 : OFF_MAXZ}); }
-    else map.setView([navTarget.lat, navTarget.lon], Math.max(map.getZoom(), 13));
-  }
+  // 地図タブへの切り替え・部品の配置が終わってから測る（呼んだ側が直後に showTab('map') しても大丈夫なように）
+  if (navTarget) setTimeout(() => requestAnimationFrame(fitNav), 80);
+}
+// 地図のうち、案内カード・右のボタン列・下のパネルに隠れない範囲（余白 px）。見えていない部品は数えない
+function freePad(){
+  const mr = $('#map').getBoundingClientRect(), vis = el => el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0; // 固定表示の部品は offsetParent が null なので使わない
+  const nb = $('#navBox'), fb = document.querySelector('.fabs'), db = $('#bottomDock');
+  let top = vis(nb) ? nb.getBoundingClientRect().bottom - mr.top + 12 : 16;
+  let right = vis(fb) ? mr.right - fb.getBoundingClientRect().left + 8 : 16;
+  let bottom = vis(db) ? mr.bottom - db.getBoundingClientRect().top + 12 : 16;
+  top = Math.max(16, top); right = Math.max(16, right); bottom = Math.max(16, bottom);
+  // 見える範囲が狭くなりすぎないよう、上下・左右とも最低160px は地図を残す
+  const fitIn = (a, b, size) => { const over = a + b - (size - 160); return over > 0 ? [a - over*a/(a + b), b - over*b/(a + b)] : [a, b]; };
+  [top, bottom] = fitIn(top, bottom, mr.height); const [left, right2] = fitIn(16, right, mr.width);
+  return {top, bottom, left, right: right2};
+}
+function fitNav(){
+  if (!navTarget || curTab !== 'map') return;
+  settleMap();
+  if (!me){ map.setView([navTarget.lat, navTarget.lon], Math.max(map.getZoom(), 13)); return; }
+  const f = freePad();
+  map.fitBounds(L.latLngBounds([[me.lat, me.lon], [navTarget.lat, navTarget.lon]]), {paddingTopLeft:[f.left, f.top], paddingBottomRight:[f.right, f.bottom], maxZoom: !useSaved() ? 15 : OFF_MAXZ});
+}
+// 追従するときの地図の中心：隠れない範囲の真ん中に自船が来るようにずらす
+function followCenter(ll){
+  if (!navTarget && !activeMob && mode === 'run') return ll;
+  const f = freePad(), dx = (f.right - f.left)/2, dy = (f.bottom - f.top)/2;
+  const pt = map.project(ll, map.getZoom()).add([dx, dy]);
+  return map.unproject(pt, map.getZoom());
 }
 function updateNav(){
   updateNav.eta = null; // 計算できたときだけ入れ直す（GPS不良・案内終了で古い到着予定を残さない）
@@ -2524,6 +2561,7 @@ async function shareText(title, text){
   try{ if (navigator.share){ await navigator.share({title, text}); return true; } }catch(e){ if (e.name === 'AbortError') return false; }
   try{ await navigator.clipboard.writeText(text); toast('文面をコピーしました。LINEなどに貼り付けてください'); return true; }catch(e){ return prompt('この文面をコピーしてください', text) !== null; }
 }
+$('#sfTripStart').onclick = () => { if ((settings.tripBreaks || []).some(t => Date.now() - t < 30*60000)) return toast('30分以内に釣行を区切ったばかりです'); addTripBreak(); };
 $('#sfShare').onclick = () => shareText('現在地', `【ボート】${posText()}`);
 $('#sfCopy').onclick = async () => { try{ await navigator.clipboard.writeText(posText()); toast('コピーしました'); }catch(e){ prompt('コピーしてください', posText()); } };
 $('#sfDepart').onclick = () => {
@@ -2531,7 +2569,7 @@ $('#sfDepart').onclick = () => {
   const ck = (store.get('checks', {}).c || []).length;
   const [H, M] = (ret || '').split(':').map(Number), end = new Date(); end.setHours(H || 0, M || 0, 0, 0); if (end < new Date()) end.setDate(end.getDate() + 1);
   const retTxt = ret ? `${end.getMonth()+1}/${end.getDate()}(${WD[end.getDay()]}) ${ret}` : '未定';
-  shareText('出港しました', `【出港連絡】${fmtDT(Date.now())} 出港しました。\n${settings.home ? `出港地：${settings.home.name}\n` : ''}行き先：${memo || '室蘭近海'}\n乗船：${n}名\n帰港予定：${retTxt}\n${posText()}\n帰港予定を過ぎても連絡が取れない場合は、118番（海上保安庁）へ相談してください。`).then(ok => { if (ok) addTripBreak(true); }); // 出港連絡を送れたら、そこから新しい釣行
+  shareText('出港しました', `【出港連絡】${fmtDT(Date.now())} 出港しました。\n${settings.home ? `出港地：${settings.home.name}\n` : ''}行き先：${memo || '室蘭近海'}\n乗船：${n}名\n帰港予定：${retTxt}\n${posText()}\n帰港予定を過ぎても連絡が取れない場合は、118番（海上保安庁）へ相談してください。`);
   if (ck < CHECKS.length) toast(`出船前チェックが ${CHECKS.length - ck} 項目残っています`, true, 5000);
 };
 $('#sfArrive').onclick = () => shareText('帰港しました', `【帰港連絡】${fmtDT(Date.now())} 無事に帰港しました。${settings.home ? `（${settings.home.name}）` : ''}`);
@@ -2558,8 +2596,10 @@ $('#sHomeCenter').onclick = () => startPick('母港（係留場所）を選ぶ',
 let pickCb = null, pickBack = null;
 // 近くを見る倍率。圏外では、保存した地図の倍率（10〜14）に収める
 const closeZ = () => !useSaved() ? Math.max(map.getZoom(), 15) : Math.min(Math.max(map.getZoom(), 12), OFF_MAXZ);
-map.on('zoomend', () => { if (useSaved() && map.getZoom() > OFF_MAXZ && !closeZ.warned){ closeZ.warned = true; toast(`圏外では z${OFF_MAXZ} より拡大した地図は保存されていないことがあります`, true, 0, [['保存済みの倍率へ戻る', () => map.setZoom(OFF_MAXZ)], ['このまま', () => {}]]); } if (map.getZoom() <= OFF_MAXZ) closeZ.warned = false; });
+map.on('zoomend', () => { if (useSaved() && map.getZoom() > OFF_MAXZ && !closeZ.warned){ closeZ.warned = true; toast(`圏外では z${OFF_MAXZ} より拡大した地図は保存されていないことがあります`, true, 0, [['保存した淡色地図へ戻る', goSavedMap], ['このまま', () => {}]]); } if (map.getZoom() <= OFF_MAXZ) closeZ.warned = false; });
 // 拡大・縮小のアニメーションが終わらずに残っていると、次の倍率変更が無視される（画面の切り替え中など）。先に終わらせる
+// 前もって保存したのは「地理院 淡色」の倍率10〜14。種類・倍率・保存範囲の枠をまとめてそこへ戻す
+function goSavedMap(){ settleMap(); if (store.get('base', 'pale') !== 'pale') setBase('pale'); if (map.getZoom() > OFF_MAXZ) map.setZoom(OFF_MAXZ, {animate:false}); try{ offRect.addTo(map); }catch(e){} toast('保存した淡色地図（倍率14まで）にしました。黄色の点線の内側が保存範囲です', false, 5000); }
 function settleMap(){ if (map._animatingZoom){ try{ map._onZoomTransitionEnd(); }catch(e){} } }
 function startPick(title, cb, at){
   pickBack = curTab; showTab('map'); setFollow(false);
@@ -2616,7 +2656,7 @@ $('#sSound').onchange = e => { if (!applySettings({sound:e.target.checked})){ e.
 function applyNight(){ document.body.classList.toggle('night', settings.night); document.querySelector('meta[name=theme-color]').content = settings.night ? '#000000' : '#0b2236'; }
 $('#sNight').checked = settings.night;
 $('#sOffMap').checked = !!settings.offMap;
-$('#sOffMap').onchange = e => { if (!applySettings({offMap:e.target.checked}, e.target.checked ? '保存した地図の倍率で使います' : '通常の倍率に戻しました')){ e.target.checked = !!settings.offMap; return; } if (e.target.checked && map.getZoom() > OFF_MAXZ) map.setZoom(OFF_MAXZ); };
+$('#sOffMap').onchange = e => { if (!applySettings({offMap:e.target.checked}, e.target.checked ? '保存した地図の倍率で使います' : '通常の倍率に戻しました')){ e.target.checked = !!settings.offMap; return; } if (e.target.checked) goSavedMap(); };
 $('#sNight').onchange = e => { if (!applySettings({night:e.target.checked})){ e.target.checked = settings.night; return; } applyNight(); };
 let wakeLock = null;
 let wakeState = 'off'; // on=保持中 / fail=保持できず / off=設定なし
@@ -2703,6 +2743,7 @@ async function netState(){
 }
 window.addEventListener('offline', netState);
 window.addEventListener('online', async () => {
+  setTimeout(refillPending, 5000);
   toast('電波が戻りました。予報を取り直しています…'); netState();
   await loadGrid(true);
   toast(grid && !grid.cached && Date.now() - gridAt < 120000 ? '予報を新しくしました' : '電波は戻りましたが、予報はまだ取れていません', !(grid && !grid.cached && Date.now() - gridAt < 120000), 4000);
