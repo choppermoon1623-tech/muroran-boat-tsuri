@@ -621,6 +621,7 @@ async function getJson(url){
 }
 // 進行方向は、動いていて20秒以内に求めたものだけ使う（船首の向きではなく移動の向き）
 const cogNow = () => lastCog != null && me && gpsFresh() && (me.sog ?? 0) >= 0.3 && Date.now() - lastCogAt < 20000 ? lastCog : null;
+const OFF_MAXZ = 14; // 圏外用に保存する地図の最大倍率
 const GPS_STALE = 30; // 秒。これより古い位置は「最終受信位置」として扱う
 const gpsAge = () => me ? (Date.now() - me.t)/1000 : Infinity;
 const GPS_ROUGH = 100; // m。これ以上の誤差は「概略の位置」で、案内・記録の確かな位置には使わない
@@ -786,9 +787,9 @@ const OVER = [
     const [pt, poly, wr] = await Promise.all([msilQuery.call(this, 'seabed-obstruction/v2/MapServer/1'), msilQuery.call(this, 'seabed-obstruction/v2/MapServer/3'), msilQuery.call(this, 'wrecks/v2/MapServer/1')]);
     L.geoJSON(poly, {style:{color:'#ff4d4f', weight:1.5, fillOpacity:.15, dashArray:'4 3'}, onEachFeature:(f, l) => l.bindPopup(msilPop(f.properties.field_001 || '海底障害物の区域', []))}).addTo(g);
     pt.features.forEach(f => { const [lon, lat] = f.geometry.coordinates, k = f.properties.field_001 || '海底障害物';
-      L.marker([lat, lon], {icon: k === '魚礁' ? dotIcon('#13c2c2', 20, '礁') : dotIcon('#ff7a45', 16, '+', 44, 'msil-small')}).bindPopup(msilPop(k, [['位置', fmtLL(lat, lon)]], [lat, lon])).addTo(g); });
+      L.marker([lat, lon], {icon: k === '魚礁' ? dotIcon('#13c2c2', 20, '礁') : dotIcon('#ff7a45', 16, '+', 44, 'msil-small')}).bindPopup(msilPop(k, [['位置', fmtLL(lat, lon)]], [lat, lon])).on('click', msilClick).addTo(g); });
     wr.features.forEach(f => { const [lon, lat] = f.geometry.coordinates;
-      L.marker([lat, lon], {icon: dotIcon('#595959', 20, '沈')}).bindPopup(msilPop('沈船', [['位置', fmtLL(lat, lon)]], [lat, lon])).addTo(g); });
+      L.marker([lat, lon], {icon: dotIcon('#595959', 20, '沈')}).bindPopup(msilPop('沈船', [['位置', fmtLL(lat, lon)]], [lat, lon])).on('click', msilClick).addTo(g); });
   }},
   {id:'fixed', name:'定置網の区域', desc:'海しる。近づくと警告。操業時期つき', sw:'#cf1322', on:true, msil:true, async load(g){
     const fc = await msilQuery.call(this, 'fixed-gear-fishery-right2024/v2/MapServer/3');
@@ -811,7 +812,7 @@ const OVER = [
     res.filter(Boolean).forEach(fc => fc.features.forEach(f => {
       const [lon, lat] = f.geometry.coordinates, n = f.properties.nature || '';
       const c = (SEABED.find(([k]) => n.includes(k)) || ['', '#999'])[1];
-      L.marker([lat, lon], {icon: dotIcon(c, 12, '', 44, 'msil-small')}).bindPopup(msilPop('底質', [['内容', n], ['位置', fmtLL(lat, lon)]])).addTo(g);
+      L.marker([lat, lon], {icon: dotIcon(c, 12, '', 44, 'msil-small')}).bindPopup(msilPop('底質', [['内容', n], ['位置', fmtLL(lat, lon)]])).on('click', msilClick).addTo(g);
     }));
   }},
   {id:'seamark', name:'灯台・ブイ', desc:'OpenSeaMap', sw:'#fadb14', on:true, layer:seamark},
@@ -917,7 +918,13 @@ function drawPoints(){
   refreshLists(); if (typeof drawGridSoon === 'function') drawGridSoon();
 }
 // 新しい一覧を端末に保存できたときだけ画面にも反映する（失敗したら何も変えない）
-function commitPoints(next){ if (!store.set('points', next)) return false; points = next; drawPoints(); return true; }
+function commitPoints(next){
+  if (!store.set('points', next)) return false; points = next; drawPoints();
+  // 案内中の地点が直されていたら、案内先も合わせる（母港・港口・MOBの専用案内は対象外）
+  if (navTarget?.id && !navTarget.home){ const p = points.find(x => x.id === navTarget.id);
+    if (p && (p.lat !== navTarget.lat || p.lon !== navTarget.lon || (p.type !== 'mob' && pointTitle(p) !== navTarget.name))) setNav(Object.assign({}, p, {name: p.type === 'mob' ? navTarget.name : pointTitle(p)})); }
+  return true;
+}
 // 釣果・地点の数値の範囲（手入力と取り込みで同じものを使う）
 const NUM_RANGE = {size:[0, 500], depth:[0, 2000], bottom:[0, 5000], count:[1, 999]};
 const SAVE_FAIL = '端末に保存できませんでした（容量不足など）。記録タブの「全データを書き出し」で退避し、古い航跡を消して空きを作ってください';
@@ -1604,7 +1611,7 @@ function setNav(p){
   $('#navBox').style.display = navTarget ? 'block' : 'none';
   updateNav();
   if (navTarget){
-    if (me) map.fitBounds(L.latLngBounds([[me.lat, me.lon], [navTarget.lat, navTarget.lon]]).pad(.3), {maxZoom:15});
+    if (me) map.fitBounds(L.latLngBounds([[me.lat, me.lon], [navTarget.lat, navTarget.lon]]).pad(.3), {maxZoom: navigator.onLine ? 15 : OFF_MAXZ});
     else map.setView([navTarget.lat, navTarget.lon], Math.max(map.getZoom(), 13));
   }
 }
@@ -1768,6 +1775,18 @@ async function fetchGrid(){
 const levelCls = (v, g, y) => v == null ? '' : v <= g ? 'g' : v <= y ? 'y' : 'r';
 const levelHex = c => ({g:'#3ddc84', y:'#ffc53d', r:'#ff5a5a'}[c] || '#ccc');
 // 表示中の海しるの印（魚礁・沈船など）の位置。予報の印で隠さないため
+// 海しるの印を押したとき、近く（36px）に別の印もあれば候補の一覧を出す
+function msilClick(e){
+  const m = e.target, c = map.latLngToContainerPoint(m.getLatLng()), near = [];
+  const walk = l => { if (l.getLatLng && l.getPopup){ if (map.latLngToContainerPoint(l.getLatLng()).distanceTo(c) < 36) near.push(l); } else l.eachLayer?.(walk); };
+  OVER.forEach(o => { if (o.msil && o.layer && map.hasLayer(o.layer)) walk(o.layer); });
+  if (near.length < 2) return;
+  setTimeout(() => { m.closePopup();
+    const name = l => (l.getPopup().getContent().match(/<b>([^<]+)<\/b>/) || [, '海洋情報'])[1];
+    const pop = L.popup().setLatLng(m.getLatLng()).setContent(`<b>${near.length}件が重なっています</b>` + near.map((l, i) => `<div><button class="btn sm" data-mi="${i}" style="width:100%;justify-content:flex-start;margin-top:6px">${esc(name(l))}<small style="margin-left:auto;opacity:.8">${fmtLL(l.getLatLng().lat, l.getLatLng().lng)}</small></button></div>`).join('')).openOn(map);
+    pop.getElement().onclick = ev => { const b = ev.target.closest('[data-mi]'); if (b){ map.closePopup(); near[+b.dataset.mi].openPopup(); } };
+  }, 0);
+}
 function msilPts(){
   const out = [];
   const walk = l => { if (out.length > 400) return; if (l.getLatLng) out.push([l.getLatLng().lat, l.getLatLng().lng]); else l.eachLayer?.(walk); };
@@ -2101,9 +2120,9 @@ function tripList(){
   if (rec && rec.pts.length > 1) addTrack(rec.pts);
   // 流し・錨泊も区切りで分ける。回数は始まった方の釣行だけで数える
   store.get('driftLog', []).forEach(x => {
-    if (x.pts?.length > 1){ splitPts(x.pts).forEach((seg, i) => { ev.push({a:seg[0][2], b:seg[seg.length-1][2], kind:x.kind, first:i === 0, min:sessMin({start:seg[0][2], end:seg[seg.length-1][2], pts:seg})}); }); return; }
+    if (x.pts?.length > 1){ splitPts(x.pts).forEach((seg, i) => { const iv = []; seg.forEach((p, k) => { if (k && p[3] !== 1) iv.push([seg[k-1][2], p[2]]); }); ev.push({a:seg[0][2], b:seg[seg.length-1][2], kind:x.kind, first:i === 0, iv, min:sessMin({start:seg[0][2], end:seg[seg.length-1][2], pts:seg})}); }); return; }
     const cuts = [x.start, ...brk0.filter(k => x.start < k && k < x.end), x.end];
-    for (let i = 1; i < cuts.length; i++) ev.push({a:cuts[i-1], b:cuts[i], kind:x.kind, first:i === 1, min:(cuts[i] - cuts[i-1])/60000});
+    for (let i = 1; i < cuts.length; i++) ev.push({a:cuts[i-1], b:cuts[i], kind:x.kind, first:i === 1, iv:[[cuts[i-1], cuts[i]]], min:(cuts[i] - cuts[i-1])/60000});
   });
   points.filter(p => p.type === 'catch' && !p.timeUnknown).forEach(p => ev.push({a:p.time, b:p.time, n:p.count || 1}));
   ev.sort((x, y) => x.a - y.a);
@@ -2111,7 +2130,7 @@ function tripList(){
   ev.forEach(e => { const t = trips[trips.length-1]; if (t && e.a - t.b < 8*3600000 && !brk.some(k => t.a < k && k <= e.a)){ t.b = Math.max(t.b, e.b); t.ev.push(e); } else trips.push({a:e.a, b:e.b, ev:[e]}); });
   return trips.map(t => {
     const n = t.ev.reduce((s2, e) => s2 + (e.n || 0), 0), drifts = t.ev.filter(e => e.kind === 'drift' && e.first).length;
-    const ses = t.ev.filter(e => e.kind), nIn = t.ev.filter(e => e.n && ses.some(x => x.a <= e.a && e.a <= x.b)).reduce((s2, e) => s2 + e.n, 0); // 流し・錨泊の記録中に釣れた分
+    const ses = t.ev.filter(e => e.kind), nIn = t.ev.filter(e => e.n && ses.some(x => x.iv.some(([a, b]) => a <= e.a && e.a <= b))).reduce((s2, e) => s2 + e.n, 0); // 流し・錨泊の記録中に釣れた分
     const fishMin = t.ev.filter(e => e.kind).reduce((s2, e) => s2 + e.min, 0), dist = t.ev.reduce((s2, e) => s2 + (e.dist || 0), 0);
     return {a:t.a, b:t.b, n, nIn, drifts, fishMin, dist};
   }).reverse();
@@ -2186,7 +2205,7 @@ function renderTrend(fs){
 $('#lSearch').oninput = refreshLists;
 $('#lList').onclick = e => {
   const m = e.target.dataset.map, g = e.target.dataset.go;
-  if (m){ const p = points.find(x => x.id === m); setFollow(false); showTab('map'); map.setView([p.lat, p.lon], 15); return; }
+  if (m){ const p = points.find(x => x.id === m); setFollow(false); showTab('map'); map.setView([p.lat, p.lon], navigator.onLine ? 15 : OFF_MAXZ); return; }
   if (g){ const p = points.find(x => x.id === g); setNav(p); showTab('map'); return; }
   const it = e.target.closest('[data-id]'); if (it) openPoint(it.dataset.id);
 };
@@ -2432,7 +2451,8 @@ function renderReturnWx(){
   const mx = a => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
   const bad = idx.find(i => hourLevel(h, mh, i).lv === 'r');
   const place = wxMoved() ? `⚠ 以前の地点の予報（${wxLoading ? '取り直し中' : wxFailAt > wxData.at ? '再取得失敗' : '取り直し待ち'}・現在地の判定ではありません）` : (wxData.label || '');
-  el.innerHTML = `<span style="font-size:14px">（${esc(place)} ${fmtLL(wxData.ll[0], wxData.ll[1])}・${fmtDT(wxData.at)} 取得${me ? `・現在地から${fmtDist(distM([me.lat, me.lon], wxData.ll))}` : ''}）</span><br>帰港予定 ${hm(end)} までの予報：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　平均風速 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}m/s（突風${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}）・有義波高 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m${wxReasons(h, mh, idx, end)}`;
+  el.innerHTML = `<b>釣り場</b>（〜帰港予定 ${hm(end)}）：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m　<span class="note">${hm(new Date(wxData.at))}取得</span>${wxMoved() ? `<br><b class="st-warn">${esc(place)}</b>` : ''}${wxReasons(h, mh, idx, end)}
+    <details class="note"><summary style="min-height:40px;display:flex;align-items:center">予報の詳細</summary>${esc(place)} ${fmtLL(wxData.ll[0], wxData.ll[1])}・${fmtDT(wxData.at)} 取得${me ? `・現在地から${fmtDist(distM([me.lat, me.lon], wxData.ll))}` : ''}</details>`;
 }
 // ×や？の理由（雷・強い突風・視界不良・欠測）と、予報が帰港予定まで届いているか
 function wxReasons(h, mh, idx, end){
@@ -2471,7 +2491,8 @@ async function renderPortWx(){
   if (!idx.length){ el.textContent = ''; return; }
   const lvs = idx.map(i => hourLevel(h, mh, i).lv), wst = lvs.includes('r') ? 'r' : lvs.includes('n') ? 'n' : lvs.includes('y') ? 'y' : 'g';
   const mx = a => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
-  el.innerHTML = `<span style="font-size:14px">帰る先（${esc(name)} ${fmtLL(portWx.lat, portWx.lon)}・${fmtDT(portWx.at)} 取得）：</span><b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　平均風速 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}m/s（突風${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}）・有義波高 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m${wxReasons(h, mh, idx, end)}`;
+  el.innerHTML = `<b>帰る先 ${esc(name)}</b>：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m　<span class="note">${hm(new Date(portWx.at))}取得</span>${wxReasons(h, mh, idx, end)}
+    <details class="note"><summary style="min-height:40px;display:flex;align-items:center">予報の詳細</summary>${esc(name)} ${fmtLL(portWx.lat, portWx.lon)}・${fmtDT(portWx.at)} 取得</details>`;
 }
 $('#sfChecks').onchange = e => { const i = +e.target.dataset.ck, today = ymd(new Date()), st = store.get('checks', {}); let c = st.d === today ? st.c : []; c = e.target.checked ? [...new Set(c.concat(i))] : c.filter(x => x !== i); store.set('checks', {d:today, c}); };
 $('#sfCheckReset').onclick = () => { store.set('checks', {}); renderSafety(); };
@@ -2518,16 +2539,19 @@ $('#sHomeHere').onclick = () => { if (!me || !gpsFresh()) return toast('GPSの�
 $('#sHomeCenter').onclick = () => startPick('母港（係留場所）を選ぶ', ll => { if (applySettings({home:{name: $('#sHomeName').value.trim() || settings.home?.name || '母港', lat:ll[0], lon:ll[1]}}, '母港を登録しました')) renderHome(); }, settings.home);
 // 地図で場所を選ぶ：十字を合わせて「ここに決める」
 let pickCb = null, pickBack = null;
+// 近くを見る倍率。圏外では、保存した地図の倍率（10〜14）に収める
+const closeZ = () => navigator.onLine ? Math.max(map.getZoom(), 15) : Math.min(Math.max(map.getZoom(), 12), OFF_MAXZ);
+map.on('zoomend', () => { if (!navigator.onLine && map.getZoom() > OFF_MAXZ && !closeZ.warned){ closeZ.warned = true; toast(`圏外では z${OFF_MAXZ} より拡大した地図は保存されていないことがあります`, true, 0, [['保存済みの倍率へ戻る', () => map.setZoom(OFF_MAXZ)], ['このまま', () => {}]]); } if (map.getZoom() <= OFF_MAXZ) closeZ.warned = false; });
 function startPick(title, cb, at){
   pickBack = curTab; showTab('map'); setFollow(false);
-  if (at) map.setView([at.lat, at.lon], Math.max(map.getZoom(), 15)); else if (me) map.setView([me.lat, me.lon], Math.max(map.getZoom(), 15));
+  if (at) map.setView([at.lat, at.lon], closeZ()); else if (me) map.setView([me.lat, me.lon], closeZ());
   pickCb = cb; $('#pickTitle').textContent = title; document.body.classList.add('picking');
   // GPSが途絶えていたら「現在地」ではなく「最終受信位置」と書く
   $('#pickMe').textContent = hereLabel();
 }
 function endPick(){ document.body.classList.remove('picking'); pickCb = null; layoutDock(); }
 $('#pickOk').onclick = () => { const c = map.getCenter(), cb = pickCb, back = pickBack; endPick(); cb && cb([c.lat, c.lng]); if (back && back !== 'map') showTab(back); };
-$('#pickMe').onclick = () => { if (!me) return toast('GPSの位置がありません'); if (!gpsFresh()) toast(`${gpsState().text}です。今の位置とずれているかもしれません`, true, 6000); map.setView([me.lat, me.lon], Math.max(map.getZoom(), 15)); };
+$('#pickMe').onclick = () => { if (!me) return toast('GPSの位置がありません'); if (!gpsFresh()) toast(`${gpsState().text}です。今の位置とずれているかもしれません`, true, 6000); map.setView([me.lat, me.lon], closeZ()); };
 $('#pickNo').onclick = () => { const back = pickBack; endPick(); if (back && back !== 'map') showTab(back); };
 $('#fAdd').onclick = () => startPick('ポイントを登録する場所を選ぶ', ll => openPoint(null, {type:'spot', lat:ll[0], lon:ll[1], posSrc:'地図で指定'}), me ? {lat:me.lat, lon:me.lon} : null);
 $('#sHomeName').onchange = e => { if (settings.home){ if (!applySettings({home:Object.assign({}, settings.home, {name: e.target.value.trim() || '母港'})}, '母港の名前を保存しました')) e.target.value = settings.home.name; renderHome(); } };
@@ -2540,7 +2564,7 @@ Object.entries(setMap).forEach(([id, k]) => { $('#'+id).value = settings[k]; $('
   if (pairBad){ e.target.value = settings[k]; return; } if (!applySettings({[k]: v})){ e.target.value = settings[k]; return; } drawGrid(); updateBarWx(); if (wxData) renderWx(); }; });
 $('#sMsilKey').value = settings.msilKey || '';
 $('#sMsilKey').onchange = e => {
-  settings.msilKey = e.target.value.trim(); saveSettings();
+  if (!applySettings({msilKey:e.target.value.trim()})){ e.target.value = settings.msilKey || ''; return; }
   OVER.filter(o => o.msil).forEach(o => { o.loaded = false; o.layer.clearLayers(); if (map.hasLayer(o.layer)){ map.removeLayer(o.layer); map.addLayer(o.layer); } });
   toast('キーを保存しました');
 };
@@ -2563,14 +2587,14 @@ function syncSettingsUI(){
   applyNight(); renderHome(); applyWake(); drawPoints(); renderInstruments();
 }
 $('#sFav').value = (settings.fav || []).join('、');
-$('#sFav').onchange = e => { const fav = e.target.value.split(/[、,，\s]+/).map(x => x.trim()).filter(Boolean).slice(0, 9); applySettings({fav}, fav.length ? `「釣れた」の魚種を ${fav.length}つ固定しました` : '釣果の多い順に戻しました'); };
+$('#sFav').onchange = e => { const fav = e.target.value.split(/[、,，\s]+/).map(x => x.trim()).filter(Boolean).slice(0, 9); if (!applySettings({fav}, fav.length ? `「釣れた」の魚種を ${fav.length}つ固定しました` : '釣果の多い順に戻しました')) e.target.value = (settings.fav || []).join('、'); };
 $('#sFmt').value = settings.fmt;
-$('#sFmt').onchange = e => { settings.fmt = e.target.value; saveSettings(); renderInstruments(); };
+$('#sFmt').onchange = e => { if (!applySettings({fmt:e.target.value})){ e.target.value = settings.fmt; return; } renderInstruments(); };
 $('#sSound').checked = settings.sound;
-$('#sSound').onchange = e => { settings.sound = e.target.checked; saveSettings(); unlockAudio(); if (settings.sound) beep(); };
+$('#sSound').onchange = e => { if (!applySettings({sound:e.target.checked})){ e.target.checked = settings.sound; return; } unlockAudio(); if (settings.sound) beep(); };
 function applyNight(){ document.body.classList.toggle('night', settings.night); document.querySelector('meta[name=theme-color]').content = settings.night ? '#000000' : '#0b2236'; }
 $('#sNight').checked = settings.night;
-$('#sNight').onchange = e => { settings.night = e.target.checked; saveSettings(); applyNight(); };
+$('#sNight').onchange = e => { if (!applySettings({night:e.target.checked})){ e.target.checked = settings.night; return; } applyNight(); };
 let wakeLock = null;
 let wakeState = 'off'; // on=保持中 / fail=保持できず / off=設定なし
 async function applyWake(){
@@ -2588,7 +2612,7 @@ async function applyWake(){
 const audioReady = () => !!audioCtx && audioCtx.state === 'running';
 const wakeText = () => ({on:'画面保持：中', fail:'<b class="st-bad">画面保持：できていません（画面が消えると見張りが止まります）</b>', off:'画面保持：未設定（設定タブで「画面を消さない」をおすすめ）'}[wakeState]);
 $('#sWake').checked = settings.wake;
-$('#sWake').onchange = e => { settings.wake = e.target.checked; saveSettings(); applyWake(); };
+$('#sWake').onchange = e => { if (!applySettings({wake:e.target.checked})){ e.target.checked = settings.wake; return; } applyWake(); };
 document.addEventListener('visibilitychange', () => { applyWake(); if (document.visibilityState === 'visible'){ updateBarTide(); loadGrid(); if (openBs && openBs.id === 'bsSafety'){ renderReturnWx(); renderPortWx(); } } });
 $('#sHelp').onclick = () => $('#help').classList.add('show');
 $('#onbMore').onclick = () => { $('#onb').classList.remove('show'); store.set('onb', 1); $('#help').classList.add('show'); };
