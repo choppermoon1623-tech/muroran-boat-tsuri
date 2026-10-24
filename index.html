@@ -210,7 +210,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
 .leaflet-top.leaflet-left .leaflet-control-zoom a{width:46px;height:46px;line-height:46px;font-size:24px}
 .lowzoom .msil-small{display:none}
 .leaflet-popup-content{font-size:14px;margin:10px 12px;line-height:1.5}
-.leaflet-popup-content .btn{margin:6px 4px 0 0;color:#fff;background:#173d5e;border-color:#173d5e;min-height:40px;font-size:14px}
+.leaflet-popup-content .btn{margin:6px 4px 0 0;color:#fff;background:#173d5e;border-color:#173d5e;min-height:44px;font-size:14px}
 .chip{display:inline-block;padding:4px 10px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);font-size:13px;margin:3px 2px}
 .tide-svg text{fill:var(--sub);font-size:12px}
 .bars .b{display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0}
@@ -400,6 +400,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
   <div class="card">
     <h3 style="margin-top:0">オフライン用の地図</h3>
     <div class="note">沖で電波が弱いときのため、室蘭近海（白老〜伊達・噴火湾東部）の地理院地図を前もって保存します。約<span id="pfCount">-</span>枚。Wi-Fiでどうぞ。一度見た地図や海しるの情報も自動で保存されます。</div>
+    <label class="row check"><input type="checkbox" id="sOffMap"> 保存した地図の倍率（〜14）で使う（電波が弱い海域で）</label>
     <div class="row" style="margin-top:8px"><button class="btn" id="pfStart">⬇ 地図を保存する</button><span id="pfState" class="note"></span></div>
     <div class="note" style="margin-top:6px">保存されるのは「地理院 淡色」の縮尺10〜14（5kmくらいまでの拡大）です。圏外ではこの地図に切り替え、拡大しすぎないでください。</div>
   </div>
@@ -622,6 +623,9 @@ async function getJson(url){
 // 進行方向は、動いていて20秒以内に求めたものだけ使う（船首の向きではなく移動の向き）
 const cogNow = () => lastCog != null && me && gpsFresh() && (me.sog ?? 0) >= 0.3 && Date.now() - lastCogAt < 20000 ? lastCog : null;
 const OFF_MAXZ = 14; // 圏外用に保存する地図の最大倍率
+// 保存した地図の倍率で使うか。端末が「接続中」でもインターネットに届かないことがあるので、手動の切り替えと地図の取得失敗も見る
+let tileFails = [];
+const useSaved = () => !navigator.onLine || !!settings.offMap || tileFails.filter(t => Date.now() - t < 60000).length >= 4;
 const GPS_STALE = 30; // 秒。これより古い位置は「最終受信位置」として扱う
 const gpsAge = () => me ? (Date.now() - me.t)/1000 : Infinity;
 const GPS_ROUGH = 100; // m。これ以上の誤差は「概略の位置」で、案内・記録の確かな位置には使わない
@@ -754,6 +758,8 @@ function setBase(id){
   const b = BASES.find(x => x[0] === id) || BASES[0];
   if (curBase) map.removeLayer(curBase);
   curBase = b[3].addTo(map); curBase.bringToBack();
+  if (!curBase._failHook){ curBase._failHook = true; curBase.on('tileerror', () => { tileFails.push(Date.now()); tileFails = tileFails.slice(-10);
+    if (tileFails.filter(t => Date.now() - t < 60000).length === 4 && map.getZoom() > OFF_MAXZ) toast('地図を取得できません（電波が弱い・圏外など）', true, 0, [['保存した倍率へ戻る', () => map.setZoom(OFF_MAXZ)], ['このまま', () => {}]]); }); }
   store.set('base', b[0]); renderLayerSheet();
 }
 
@@ -1304,8 +1310,8 @@ function updateMode(){
   setText('mdNote', [st.gpsBad ? `<b class="st-warn">GPS ${me ? '±' + Math.round(me.acc) + 'm・' + Math.round(gpsAge()) + '秒前' : '未受信'}。空が見える所でスマホを持ってください</b>` : '',
     wakeState === 'fail' ? wakeText() : '',
     settings.sound && !audioReady() ? '<button class="btn sm" id="mdSound" style="margin-top:4px">🔈 タップして警報音を有効にする</button>' : '',
-    wakeState === 'off' ? '画面保持：未設定（画面が消えると見張りが止まる端末があります）<br><button class="btn sm" id="mdWakeOn" style="margin-top:4px">💡 画面保持を有効にする</button>' : ''].filter(Boolean).join('<br>'));
-  setText('mdNoteMore', 'この画面を表示している間だけ見張ります。<br>' + wakeText() + '<br>' + (!settings.sound ? '音：鳴らさない設定（振動のみ）' : audioReady() ? '音：準備済み' : '音：まだ有効になっていません'));
+    wakeState === 'off' && !anchorAlarm ? '画面保持：未設定（画面が消えると見張りが止まる端末があります）<br><button class="btn sm" id="mdWakeOn" style="margin-top:4px">💡 画面保持を有効にする</button>' : ''].filter(Boolean).join('<br>'));
+  setText('mdNoteMore', 'この画面を表示している間だけ見張ります。<br>' + wakeText() + (wakeState === 'off' && anchorAlarm ? ' <button class="btn sm" id="mdWakeOn">💡 画面保持を有効にする</button>' : '') + '<br>' + (!settings.sound ? '音：鳴らさない設定（振動のみ）' : audioReady() ? '音：準備済み' : '音：まだ有効になっていません'));
   if ($('#mdSound')) $('#mdSound').onclick = () => { unlockAudio(); setTimeout(() => { beep(); panelKey = ''; updateMode(); }, 150); };
   if ($('#mdWakeOn')) $('#mdWakeOn').onclick = () => { if (!applySettings({wake:true}, '画面保持を有効にしました（電池を使います）')) return; $('#sWake').checked = true; applyWake().then(() => { panelKey = ''; updateMode(); }); };
   if (st.gpsBad && !anchor.gpsWarned){ anchor.gpsWarned = true; buzz([300,150,300]); beep(); toast('⚠ GPS不良：走錨の見張りができていません', true, 6000); }
@@ -1615,7 +1621,9 @@ function setNav(p){
   $('#navBox').style.display = navTarget ? 'block' : 'none';
   updateNav();
   if (navTarget){
-    if (me) map.fitBounds(L.latLngBounds([[me.lat, me.lon], [navTarget.lat, navTarget.lon]]).pad(.3), {maxZoom: navigator.onLine ? 15 : OFF_MAXZ});
+    if (me){ const mr = $('#map').getBoundingClientRect(), nb = $('#navBox').getBoundingClientRect(), fb = document.querySelector('.fabs').getBoundingClientRect(), db = $('#bottomDock').getBoundingClientRect();
+      const top = Math.max(20, nb.bottom - mr.top + 16), right = Math.max(20, fb.width ? mr.right - fb.left + 12 : 20), bottom = Math.max(20, mr.bottom - db.top + 16);
+      settleMap(), map.fitBounds(L.latLngBounds([[me.lat, me.lon], [navTarget.lat, navTarget.lon]]), {paddingTopLeft:[24, top], paddingBottomRight:[right, bottom], maxZoom: !useSaved() ? 15 : OFF_MAXZ}); }
     else map.setView([navTarget.lat, navTarget.lon], Math.max(map.getZoom(), 13));
   }
 }
@@ -1953,9 +1961,10 @@ function renderWx0(){
     const warns = [...new Set(L2.flatMap(x => x.warn))], unks = [...new Set(L2.flatMap(x => x.unk || []))];
     const mx = arr => { const v = arr.filter(x => x != null); return v.length ? Math.max(...v) : null; };
     const mw = mx(idx.map(i => h.wind_speed_10m[i])), mg = mx(idx.map(i => h.wind_gusts_10m[i])), mv = mx(idx.map(i => mh.wave_height?.[i]));
-    const wdir = idx.map(i => mh.wave_direction?.[i]).filter(x => x != null);
-    const sw = mx(idx.map(i => mh.swell_wave_height?.[i])), per = mx(idx.map(i => mh.wave_period?.[i]));
-    slots.push(`<div><div class="note">${dd ? '明日' : '今日'} ${nm}</div><b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b><div class="note">平均風速 最大${mw?.toFixed(0) ?? '-'}m/s（突風${mg?.toFixed(0) ?? '-'}）<br>有義波高 最大${mv?.toFixed(1) ?? '-'}m${wdir.length ? `・${dir16(wdir[Math.floor(wdir.length/2)])}から` : ''}${per ? `・周期${per.toFixed(0)}s` : ''}${sw != null && sw >= 0.5 ? `<br>うねり 最大${sw.toFixed(1)}m（風が弱くても揺れます）` : ''}${warns.length ? `<br><b class="r">⚠ ${warns.join('・')}</b>` : ''}${typeof unks !== 'undefined' && unks.length ? `<br><b class="y">${unks.join('・')}は未確認（予報が欠けている）</b>` : ''}</div></div>`);
+    const iMax = idx.reduce((b, i) => (mh.wave_height?.[i] ?? -1) > (mh.wave_height?.[b] ?? -1) ? i : b, idx[0]); // 最大波高の時刻
+    const wdir = mh.wave_direction?.[iMax] != null ? [mh.wave_direction[iMax]] : [];
+    const sw = mx(idx.map(i => mh.swell_wave_height?.[i])), per = mh.wave_period?.[iMax] ?? null;
+    slots.push(`<div><div class="note">${dd ? '明日' : '今日'} ${nm}</div><b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b><div class="note">平均風速 最大${mw?.toFixed(0) ?? '-'}m/s（突風${mg?.toFixed(0) ?? '-'}）<br>有義波高 最大${mv?.toFixed(1) ?? '-'}m${mv != null ? `（${pad(new Date(h.time[iMax]).getHours())}時` : ''}${wdir.length ? `・${dir16(wdir[0])}から` : ''}${per ? `・周期${per.toFixed(0)}s` : ''}${mv != null ? '）' : ''}${sw != null && sw >= 0.5 ? `<br>うねり 最大${sw.toFixed(1)}m（風が弱くても揺れます）` : ''}${warns.length ? `<br><b class="r">⚠ ${warns.join('・')}</b>` : ''}${typeof unks !== 'undefined' && unks.length ? `<br><b class="y">${unks.join('・')}は未確認（予報が欠けている）</b>` : ''}</div></div>`);
   }
   $('#wSlots').innerHTML = slots.join('');
   let rows = '', lastDay = '', worst = 'g'; const warn12 = new Set(), unk12 = new Set();
@@ -2150,6 +2159,7 @@ function renderTrips(){
 }
 // 釣行の区切り（記録は8時間あくと自動で区切る。続けて別の釣行に出たときなどに手で区切る）
 function addTripBreak(silent){
+  if (silent && (settings.tripBreaks || []).some(t => Date.now() - t < 30*60000)) return; // 30分以内に区切ったばかりなら重ねない
   const b = (settings.tripBreaks || []).filter(t => Date.now() - t < 3*365*86400000).concat(Date.now()).slice(-300);
   if (applySettings({tripBreaks:b}, silent ? undefined : 'ここから新しい釣行として記録をまとめます')) refreshLists();
 }
@@ -2180,7 +2190,7 @@ $('#lDrifts').onclick = e => {
   $('#histChip').style.display = 'flex';
   $('#histX').onclick = () => { histLayer.clearLayers(); $('#histChip').style.display = 'none'; };
   if (e.target.dataset.dgo) setNav({name:`${fmtDT(x.start)} の流しの始点`, lat:x.pts[0][0], lon:x.pts[0][1]});
-  else map.fitBounds(L.latLngBounds(x.pts.map(q => [q[0], q[1]])).pad(.3), {maxZoom: navigator.onLine ? 16 : OFF_MAXZ});
+  else settleMap(), map.fitBounds(L.latLngBounds(x.pts.map(q => [q[0], q[1]])).pad(.3), {maxZoom: !useSaved() ? 16 : OFF_MAXZ});
 };
 function renderTrend(fs){
   const cs = points.filter(p => p.type === 'catch' && !p.timeUnknown && (!fs || p.species === fs));
@@ -2212,13 +2222,13 @@ function renderTrend(fs){
 $('#lSearch').oninput = refreshLists;
 $('#lList').onclick = e => {
   const m = e.target.dataset.map, g = e.target.dataset.go;
-  if (m){ const p = points.find(x => x.id === m); setFollow(false); showTab('map'); map.setView([p.lat, p.lon], navigator.onLine ? 15 : OFF_MAXZ); return; }
+  if (m){ const p = points.find(x => x.id === m); setFollow(false); showTab('map'); settleMap(), map.setView([p.lat, p.lon], !useSaved() ? 15 : OFF_MAXZ); return; }
   if (g){ const p = points.find(x => x.id === g); setNav(p); showTab('map'); return; }
   const it = e.target.closest('[data-id]'); if (it) openPoint(it.dataset.id);
 };
 $('#lTracks').onclick = e => {
   const d = e.target.dataset;
-  if (d.tr){ e.target.checked ? shownTracks.add(d.tr) : shownTracks.delete(d.tr); store.set('shownTracks', [...shownTracks]); drawTracks(); if (e.target.checked){ const tr = tracks.find(t => t.id === d.tr); showTab('map'); setFollow(false); map.fitBounds(L.latLngBounds(tr.pts.map(p => [p[0], p[1]])).pad(.1), {maxZoom: navigator.onLine ? 18 : OFF_MAXZ}); } }
+  if (d.tr){ e.target.checked ? shownTracks.add(d.tr) : shownTracks.delete(d.tr); store.set('shownTracks', [...shownTracks]); drawTracks(); if (e.target.checked){ const tr = tracks.find(t => t.id === d.tr); showTab('map'); setFollow(false); settleMap(), map.fitBounds(L.latLngBounds(tr.pts.map(p => [p[0], p[1]])).pad(.1), {maxZoom: !useSaved() ? 18 : OFF_MAXZ}); } }
   if (d.gpx){ const tr = tracks.find(t => t.id === d.gpx); download(`航跡_${ymd(new Date(tr.start))}.gpx`, gpxTrack(tr), 'application/gpx+xml'); }
   if (d.trdel && confirm('この航跡を削除しますか？')){ const next = tracks.filter(t => t.id !== d.trdel); if (!store.set('tracks', next)) return toast('航跡を削除できませんでした（保存に失敗）。' + SAVE_FAIL, true, 9000); tracks = next; shownTracks.delete(d.trdel); drawTracks(); }
 };
@@ -2265,7 +2275,7 @@ function cleanSettings(j){
   if (o.windG != null && o.windY != null && o.windY < o.windG) delete o.windY;
   if (o.waveG != null && o.waveY != null && o.waveY < o.waveG) delete o.waveY;
   if (['dm','dec'].includes(j.fmt)) o.fmt = j.fmt;
-  ['night','sound'].forEach(k => { if (typeof j[k] === 'boolean') o[k] = j[k]; });
+  ['night','sound','offMap'].forEach(k => { if (typeof j[k] === 'boolean') o[k] = j[k]; });
   if (Array.isArray(j.tripBreaks)) o.tripBreaks = j.tripBreaks.filter(okTime).slice(-300);
   if (Array.isArray(j.fav)) o.fav = j.fav.filter(x => typeof x === 'string').map(x => x.slice(0, 20)).slice(0, 9);
   ['home','gate'].forEach(k => { if (!(k in j)) return; const h = j[k]; if (h === null) o[k] = null; else if (h && okLL(h.lat, h.lon)) o[k] = {name:str(h.name, 40) || (k === 'home' ? '母港' : '港口'), lat:h.lat, lon:h.lon}; });
@@ -2509,9 +2519,10 @@ const posText = () => {
   const head = gpsFresh() ? '現在地' : me.suspect && age <= GPS_STALE ? '直前の確かな位置（GPSの位置が飛んだため確認中）' : gpsRough() ? '概略の位置（GPS精度不足）' : '最終受信位置（GPS途絶中）';
   return `${head} ${fmtDM(me.lat, me.lon)}\n${fmtDT(me.t)} 受信・${ago}・誤差半径 約${Math.round(me.acc)}m\nhttps://maps.google.com/?q=${me.lat.toFixed(5)},${me.lon.toFixed(5)}`;
 };
+// 共有できたか（コピー・手でコピーを含む）を返す。取り消したら false
 async function shareText(title, text){
-  try{ if (navigator.share){ await navigator.share({title, text}); return; } }catch(e){ if (e.name === 'AbortError') return; }
-  try{ await navigator.clipboard.writeText(text); toast('文面をコピーしました。LINEなどに貼り付けてください'); }catch(e){ prompt('この文面をコピーしてください', text); }
+  try{ if (navigator.share){ await navigator.share({title, text}); return true; } }catch(e){ if (e.name === 'AbortError') return false; }
+  try{ await navigator.clipboard.writeText(text); toast('文面をコピーしました。LINEなどに貼り付けてください'); return true; }catch(e){ return prompt('この文面をコピーしてください', text) !== null; }
 }
 $('#sfShare').onclick = () => shareText('現在地', `【ボート】${posText()}`);
 $('#sfCopy').onclick = async () => { try{ await navigator.clipboard.writeText(posText()); toast('コピーしました'); }catch(e){ prompt('コピーしてください', posText()); } };
@@ -2520,8 +2531,7 @@ $('#sfDepart').onclick = () => {
   const ck = (store.get('checks', {}).c || []).length;
   const [H, M] = (ret || '').split(':').map(Number), end = new Date(); end.setHours(H || 0, M || 0, 0, 0); if (end < new Date()) end.setDate(end.getDate() + 1);
   const retTxt = ret ? `${end.getMonth()+1}/${end.getDate()}(${WD[end.getDay()]}) ${ret}` : '未定';
-  addTripBreak(true); // 出港連絡を出したら、そこから新しい釣行
-  shareText('出港しました', `【出港連絡】${fmtDT(Date.now())} 出港しました。\n${settings.home ? `出港地：${settings.home.name}\n` : ''}行き先：${memo || '室蘭近海'}\n乗船：${n}名\n帰港予定：${retTxt}\n${posText()}\n帰港予定を過ぎても連絡が取れない場合は、118番（海上保安庁）へ相談してください。`);
+  shareText('出港しました', `【出港連絡】${fmtDT(Date.now())} 出港しました。\n${settings.home ? `出港地：${settings.home.name}\n` : ''}行き先：${memo || '室蘭近海'}\n乗船：${n}名\n帰港予定：${retTxt}\n${posText()}\n帰港予定を過ぎても連絡が取れない場合は、118番（海上保安庁）へ相談してください。`).then(ok => { if (ok) addTripBreak(true); }); // 出港連絡を送れたら、そこから新しい釣行
   if (ck < CHECKS.length) toast(`出船前チェックが ${CHECKS.length - ck} 項目残っています`, true, 5000);
 };
 $('#sfArrive').onclick = () => shareText('帰港しました', `【帰港連絡】${fmtDT(Date.now())} 無事に帰港しました。${settings.home ? `（${settings.home.name}）` : ''}`);
@@ -2547,11 +2557,15 @@ $('#sHomeCenter').onclick = () => startPick('母港（係留場所）を選ぶ',
 // 地図で場所を選ぶ：十字を合わせて「ここに決める」
 let pickCb = null, pickBack = null;
 // 近くを見る倍率。圏外では、保存した地図の倍率（10〜14）に収める
-const closeZ = () => navigator.onLine ? Math.max(map.getZoom(), 15) : Math.min(Math.max(map.getZoom(), 12), OFF_MAXZ);
-map.on('zoomend', () => { if (!navigator.onLine && map.getZoom() > OFF_MAXZ && !closeZ.warned){ closeZ.warned = true; toast(`圏外では z${OFF_MAXZ} より拡大した地図は保存されていないことがあります`, true, 0, [['保存済みの倍率へ戻る', () => map.setZoom(OFF_MAXZ)], ['このまま', () => {}]]); } if (map.getZoom() <= OFF_MAXZ) closeZ.warned = false; });
+const closeZ = () => !useSaved() ? Math.max(map.getZoom(), 15) : Math.min(Math.max(map.getZoom(), 12), OFF_MAXZ);
+map.on('zoomend', () => { if (useSaved() && map.getZoom() > OFF_MAXZ && !closeZ.warned){ closeZ.warned = true; toast(`圏外では z${OFF_MAXZ} より拡大した地図は保存されていないことがあります`, true, 0, [['保存済みの倍率へ戻る', () => map.setZoom(OFF_MAXZ)], ['このまま', () => {}]]); } if (map.getZoom() <= OFF_MAXZ) closeZ.warned = false; });
+// 拡大・縮小のアニメーションが終わらずに残っていると、次の倍率変更が無視される（画面の切り替え中など）。先に終わらせる
+function settleMap(){ if (map._animatingZoom){ try{ map._onZoomTransitionEnd(); }catch(e){} } }
 function startPick(title, cb, at){
   pickBack = curTab; showTab('map'); setFollow(false);
-  if (at) map.setView([at.lat, at.lon], closeZ()); else if (me) map.setView([me.lat, me.lon], closeZ());
+  // アニメーションなしで確実に移す（直前の拡大・縮小の途中でも倍率を取りこぼさない）
+  settleMap();
+  if (at) map.setView([at.lat, at.lon], closeZ(), {animate:false}); else if (me) map.setView([me.lat, me.lon], closeZ(), {animate:false});
   pickCb = cb; $('#pickTitle').textContent = title; document.body.classList.add('picking');
   // GPSが途絶えていたら「現在地」ではなく「最終受信位置」と書く
   $('#pickMe').textContent = hereLabel();
@@ -2589,7 +2603,7 @@ function askChoice(text, btns){
 }
 function syncSettingsUI(){
   Object.entries(setMap).forEach(([id, k]) => $('#'+id).value = settings[k]);
-  $('#sFmt').value = settings.fmt; $('#sSound').checked = !!settings.sound; $('#sNight').checked = !!settings.night; $('#sWake').checked = !!settings.wake;
+  $('#sFmt').value = settings.fmt; $('#sSound').checked = !!settings.sound; $('#sOffMap').checked = !!settings.offMap; $('#sNight').checked = !!settings.night; $('#sWake').checked = !!settings.wake;
   $('#sFav').value = (settings.fav || []).join('、');
   applyNight(); renderHome(); applyWake(); drawPoints(); renderInstruments();
 }
@@ -2601,6 +2615,8 @@ $('#sSound').checked = settings.sound;
 $('#sSound').onchange = e => { if (!applySettings({sound:e.target.checked})){ e.target.checked = settings.sound; return; } unlockAudio(); if (settings.sound) beep(); };
 function applyNight(){ document.body.classList.toggle('night', settings.night); document.querySelector('meta[name=theme-color]').content = settings.night ? '#000000' : '#0b2236'; }
 $('#sNight').checked = settings.night;
+$('#sOffMap').checked = !!settings.offMap;
+$('#sOffMap').onchange = e => { if (!applySettings({offMap:e.target.checked}, e.target.checked ? '保存した地図の倍率で使います' : '通常の倍率に戻しました')){ e.target.checked = !!settings.offMap; return; } if (e.target.checked && map.getZoom() > OFF_MAXZ) map.setZoom(OFF_MAXZ); };
 $('#sNight').onchange = e => { if (!applySettings({night:e.target.checked})){ e.target.checked = settings.night; return; } applyNight(); };
 let wakeLock = null;
 let wakeState = 'off'; // on=保持中 / fail=保持できず / off=設定なし
