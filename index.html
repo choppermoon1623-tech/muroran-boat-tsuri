@@ -137,6 +137,11 @@ body.fabsMin .fabs .fab:not(#fFollow):not(#fMore),body.fabsAuto .fabs .fab:not(#
 #mobPanel.tight .t,#mobPanel.tight #mobTip{display:none}
 #mobPanel.tight #mobRel{font-size:16px}
 #mobPanel.tight details summary{min-height:44px;font-size:14px}
+#mobPanel.tight2 details{display:none}
+#mobPanel.tight2 #mobHead{font-size:15px}
+#mobPanel.tight2{padding:6px 10px}
+body.mobTight2 #chips,body.mobTight2 #sunWarn{display:none!important}
+@media (orientation:landscape){ body.mobTight #mobPanel{right:74px} } /* 横向きでは右のボタン列（その他）を隠さない */
 body.mobTight #navBox{display:none!important}
 #modePanel .row:has(.btn){position:sticky;bottom:-8px;background:inherit}
 @media (max-height:700px){ .fab{min-height:46px;width:54px;font-size:11px} .fab i{font-size:16px} .fabs{gap:5px;top:calc(var(--barH,96px) + 62px)} #fMob{min-height:50px} }
@@ -1379,16 +1384,18 @@ function condText(c){
   if (c.shio) a.push(c.shio);
   if (c.wind != null) a.push(`風 ${dir16(c.windDir)} ${c.wind.toFixed(1)}m/s`);
   if (c.wave != null) a.push(`波 ${c.wave.toFixed(1)}m`);
-  if (c.sst != null) a.push(`水温 ${c.sst.toFixed(1)}℃`);
+  if (c.sst != null) a.push(`海面水温（モデル） ${c.sst.toFixed(1)}℃`);
   if (c.temp != null) a.push(`気温 ${c.temp.toFixed(0)}℃`);
   if (c.pres != null) a.push(`気圧 ${Math.round(c.pres)}hPa`);
   if (c.drift != null) a.push(`流し ${c.drift.toFixed(1)}kn`);
   if (c.wind == null && c.tide != null) a.push('風・波は未取得（圏外か3日より前）');
+  else if (c.wind != null && c.wxSrc && (c.wave == null || c.sst == null) && !c.wxPending) a.push(`${[c.wave == null ? '波' : '', c.sst == null ? '海面水温' : ''].filter(Boolean).join('・')}：予報モデルに値なし`);
   const at = (t, f) => t ? `（${fmtDT(t)} 取得${f ? '・' + f : ''}）` : '';
   const src = [c.wxSrc === 'モデル値（保存予報）' ? `風・波は保存予報から補った値${at(c.wxAt, c.wxFrom)}` : c.wxCached ? `風は端末に保存してあった取得結果${at(c.wxAt)}` : '',
-    c.waveSrc === '保存予報' ? `波は保存予報から補った値${at(c.waveAt ?? c.wxAt, c.waveFrom ?? c.wxFrom)}` : c.waveCached ? `波・水温は端末に保存してあった取得結果${at(c.waveAt)}` : '',
+    c.waveSrc === '保存予報' ? `波は保存予報から補った値${at(c.waveAt ?? c.wxAt, c.waveFrom ?? c.wxFrom)}` : c.waveCached ? `波は端末に保存してあった取得結果${at(c.waveAt)}` : '',
+    c.sstSrc === '保存予報' ? `海面水温は保存予報から補った値${at(c.sstAt, c.sstFrom)}` : c.sstCached ? `海面水温は端末に保存してあった取得結果${at(c.sstAt)}` : '',
     c.wxPending ? '電波が戻ったら取り直します' : ''].filter(Boolean).join('\n');
-  return a.length ? 'そのときの状況' + (c.wxSrc ? '（風・波・水温は予報モデル値）' : '') + '：' + a.join(' / ') + (src ? `\n${src}` : '') : '';
+  return a.length ? 'そのときの状況' + (c.wxSrc ? '（風・波・海面水温は予報モデル値）' : '') + '：' + a.join(' / ') + (src ? `\n${src}` : '') : '';
 }
 function openPoint(id, init){
   hideBs();
@@ -1479,51 +1486,56 @@ function snapshotCond(t, noLive){
   return {tide: td?.cm ?? null, tideUp: td?.up, stage: st?.label, shio: shioName(d), moon: +moonAge(d).toFixed(1), drift: v ? +v.kn.toFixed(2) : null, mode: noLive ? null : mode, driftId: !noLive && mode === 'drift' ? drift?.id ?? null : null};
 }
 async function fillCond(id){
-  // 釣れた時刻の風・波・水温（Open-Meteo の毎時モデル値）を付ける。3日より前・圏外なら付けない
+  // 釣れた時刻の風・波・海面水温（Open-Meteo の毎時モデル値）を付ける。3日より前・圏外なら付けない
   const p = points.find(x => x.id === id); if (!p || Date.now() - p.time > 3*86400000) return;
+  let w, m;
   try{
     const q = `latitude=${p.lat.toFixed(3)}&longitude=${p.lon.toFixed(3)}&timezone=Asia%2FTokyo&past_days=3&forecast_days=1`;
-    const [w, m] = await Promise.all([
+    [w, m] = await Promise.all([
       getJson(`https://api.open-meteo.com/v1/forecast?${q}&hourly=temperature_2m,pressure_msl,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms`),
       getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height,sea_surface_temperature`).catch(() => ({data:{}, failed:true}))
     ]);
-    const d = new Date(p.time), key = `${ymd(d)}T${pad(d.getHours())}:00`;
-    const i = w.data.hourly?.time?.indexOf(key) ?? -1, j = m.data.hourly?.time?.indexOf(key) ?? -1;
-    if (i < 0 || w.data.hourly.wind_speed_10m?.[i] == null) return fillCondSaved(id); // 対象時刻・風が無い応答：保存予報で補い、取り直す
-    const waveOk = j >= 0 && m.data.hourly.wave_height?.[j] != null;
-    // 取りに行った時と位置・日時が同じ記録にだけ付ける
-    const q2 = points.find(x => x.id === id);
-    if (!q2 || q2.lat !== p.lat || q2.lon !== p.lon || q2.time !== p.time) return;
-    const H = w.data.hourly, M = m.data.hourly || {};
-    const add = {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], wxSrc:'モデル値', wxCached: w.cached ? true : undefined, wxAt: w.cached ? w.at : undefined, wxFrom: undefined,
-      wxPending: !waveOk || w.cached || m.cached ? true : undefined};
-    if (H.temperature_2m?.[i] != null) add.temp = H.temperature_2m[i];
-    if (H.pressure_msl?.[i] != null) add.pres = H.pressure_msl[i];
-    // 波が取れたときだけ波の値と出所を入れ替える（取れなければ前の値を残し、保存予報で補う）
-    if (waveOk) Object.assign(add, {wave: M.wave_height[j], waveCached: m.cached ? true : undefined, waveAt: m.cached ? m.at : undefined, waveSrc: undefined, waveFrom: undefined},
-      M.sea_surface_temperature?.[j] != null ? {sst: M.sea_surface_temperature[j]} : {});
-    commitPoints(points.map(x => x.id === id ? Object.assign({}, q2, {cond: Object.assign({}, q2.cond || {}, add)}) : x));
-    if (!waveOk) fillCondSaved(id, true); // 波だけ取れなかった：保存予報で補えるなら補い、電波が戻ったら取り直す
-  }catch(e){ fillCondSaved(id); }
-}
-// 保存してある予報（10km以内・同じ時刻）から風・波を付ける。付けられなければ「未取得」の印を残す
-function fillCondSaved(id, waveOnly){
-  const p = points.find(x => x.id === id); if (!p) return;
+  }catch(e){ return fillCondSaved(id); } // 圏外：保存予報で補い、電波が戻ったら取り直す
   const d = new Date(p.time), key = `${ymd(d)}T${pad(d.getHours())}:00`;
-  const has = x => { const i = x.w.hourly.time?.indexOf(key) ?? -1; if (i < 0) return -1; const M = mhOf(x.w, x.m);
-    return (waveOnly ? M.wave_height?.[i] != null : x.w.hourly.wind_speed_10m?.[i] != null) ? i : -1; };
-  const src = [wxData && {w:wxData.w, m:wxData.m, ll:wxData.ll, at:wxData.at}, ...(grid ? grid.pts.map((ll, k) => ({w:grid.w[k], m:grid.m[k], ll, at:gridAt})) : [])].filter(x => x && x.w?.hourly)
-    .map(x => Object.assign(x, {d: distM([p.lat, p.lon], x.ll), i: has(x)})).filter(x => x.d < 10000 && x.i >= 0).sort((a, b) => a.d - b.d)[0];
-  const i = src ? src.i : -1;
-  if (i < 0){ if (!p.cond?.wxPending) commitPoints(points.map(x => x.id === id ? Object.assign({}, x, {cond: Object.assign({}, x.cond || {}, {wxPending:true})}) : x)); return; }
-  const H = src.w.hourly, M = mhOf(src.w, src.m);
-  const from = `${Math.round(src.d/100)/10}km先の予報地点`, sst = M.sea_surface_temperature?.[i];
-  const add = waveOnly ? {wave: M.wave_height[i], waveSrc:'保存予報', waveAt: src.at, waveFrom: from, waveCached: undefined, wxPending:true}
-    : {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], wxSrc:'モデル値（保存予報）', wxAt: src.at, wxFrom: from, wxCached: undefined, wxPending:true};
-  if (!waveOnly && M.wave_height?.[i] != null) Object.assign(add, {wave: M.wave_height[i], waveSrc: undefined, waveAt: undefined, waveFrom: undefined, waveCached: undefined});
-  if (sst != null && (waveOnly || add.wave != null)) add.sst = sst;
+  const H = w.data.hourly || {}, M = m.data.hourly || {};
+  const i = H.time?.indexOf(key) ?? -1, j = M.time?.indexOf(key) ?? -1;
+  // 取りに行った時と位置・日時が同じ記録にだけ付ける
+  const q2 = points.find(x => x.id === id);
+  if (!q2 || q2.lat !== p.lat || q2.lon !== p.lon || q2.time !== p.time) return;
+  const got = {wind: i >= 0 ? H.wind_speed_10m?.[i] ?? null : null, wave: j >= 0 ? M.wave_height?.[j] ?? null : null, sst: j >= 0 ? M.sea_surface_temperature?.[j] ?? null : null};
+  const add = {};
+  if (got.wind != null) Object.assign(add, {wind: got.wind, windDir: H.wind_direction_10m?.[i] ?? null, wxSrc:'モデル値', wxCached: w.cached ? true : undefined, wxAt: w.cached ? w.at : undefined, wxFrom: undefined});
+  if (got.wind != null && H.temperature_2m?.[i] != null) add.temp = H.temperature_2m[i];
+  if (got.wind != null && H.pressure_msl?.[i] != null) add.pres = H.pressure_msl[i];
+  if (got.wave != null) Object.assign(add, {wave: got.wave, waveCached: m.cached ? true : undefined, waveAt: m.cached ? m.at : undefined, waveSrc: undefined, waveFrom: undefined});
+  if (got.sst != null) Object.assign(add, {sst: got.sst, sstCached: m.cached ? true : undefined, sstAt: m.cached ? m.at : undefined, sstSrc: undefined, sstFrom: undefined});
+  const need = {wind: got.wind == null, wave: got.wave == null, sst: got.sst == null};
+  const miss = need.wind || need.wave || need.sst;
+  // 欠けた項目が続くときは、いつまでも取り直さない（5回まで。モデルに値が無い海域もある）
+  const tries = miss || w.cached || m.cached ? (q2.cond?.wxTries || 0) + 1 : 0;
+  Object.assign(add, {wxTries: tries || undefined, wxPending: (miss || w.cached || m.cached) && tries < 5 ? true : undefined});
+  commitPoints(points.map(x => x.id === id ? Object.assign({}, q2, {cond: Object.assign({}, q2.cond || {}, add)}) : x));
+  if (miss) fillCondSaved(id, need, add.wxPending === true);
+}
+// 保存してある予報（10km以内・同じ時刻）から、欠けている項目（風・波・海面水温）を、その値がある最寄りの地点で補う
+function fillCondSaved(id, need, pending = true){
+  const p = points.find(x => x.id === id); if (!p) return;
+  need = need || {wind:true, wave:true, sst:true};
+  const d = new Date(p.time), key = `${ymd(d)}T${pad(d.getHours())}:00`;
+  const cands = [wxData && {w:wxData.w, m:wxData.m, ll:wxData.ll, at:wxData.at}, ...(grid ? grid.pts.map((ll, k) => ({w:grid.w[k], m:grid.m[k], ll, at:gridAt})) : [])].filter(x => x && x.w?.hourly)
+    .map(x => Object.assign(x, {d: distM([p.lat, p.lon], x.ll), i: x.w.hourly.time?.indexOf(key) ?? -1, M: mhOf(x.w, x.m)})).filter(x => x.d < 10000 && x.i >= 0).sort((a, b) => a.d - b.d);
+  const val = {wind: x => x.w.hourly.wind_speed_10m?.[x.i], wave: x => x.M.wave_height?.[x.i], sst: x => x.M.sea_surface_temperature?.[x.i]};
+  const from = x => `${Math.round(x.d/100)/10}km先の予報地点`;
+  const add = {wxPending: pending ? true : undefined};
+  ['wind','wave','sst'].forEach(k => {
+    if (!need[k]) return;
+    const x = cands.find(c => val[k](c) != null); if (!x) return;
+    if (k === 'wind') Object.assign(add, {wind: val.wind(x), windDir: x.w.hourly.wind_direction_10m?.[x.i] ?? null, wxSrc:'モデル値（保存予報）', wxAt: x.at, wxFrom: from(x), wxCached: undefined});
+    if (k === 'wave') Object.assign(add, {wave: val.wave(x), waveSrc:'保存予報', waveAt: x.at, waveFrom: from(x), waveCached: undefined});
+    if (k === 'sst') Object.assign(add, {sst: val.sst(x), sstSrc:'保存予報', sstAt: x.at, sstFrom: from(x), sstCached: undefined});
+  });
+  if (Object.keys(add).length === 1 && !!p.cond?.wxPending === !!pending) return;
   commitPoints(points.map(x => x.id === id ? Object.assign({}, x, {cond: Object.assign({}, x.cond || {}, add)}) : x));
-  if (!waveOnly && add.wave == null) fillCondSaved(id, true); // 風を付けた予報地点に波が無ければ、波のある別の地点から補う
 }
 // 電波が戻ったら、未取得・保存予報で付けた釣果の気象を取り直す（3日以内・最大20件）
 function refillPending(){ points.filter(p => p.cond?.wxPending && Date.now() - p.time < 3*86400000).slice(-20).forEach((p, k) => setTimeout(() => fillCond(p.id), k*1500)); }
@@ -1577,8 +1589,8 @@ $('#qcDetail').onclick = () => {
 let activeMob = store.get('activeMob', null); // {id, t, lat, lon, saved, stale}
 function renderMob(){
   const el = $('#mobPanel'); document.body.classList.toggle('mob', !!activeMob);
-  if (!activeMob){ el.style.display = 'none'; el.innerHTML = ''; el.classList.remove('tight');
-    if (document.body.classList.contains('mobTight')){ document.body.classList.remove('mobTight'); if (navTarget) setTimeout(() => requestAnimationFrame(fitNav), 80); }
+  if (!activeMob){ el.style.display = 'none'; el.innerHTML = ''; renderMob.key = null;
+    if (document.body.classList.contains('mobTight')){ mobLevel(0); if (navTarget) setTimeout(() => requestAnimationFrame(fitNav), 80); }
     return; }
   const m = activeMob;
   if (!$('#mobEnd')){
@@ -1621,11 +1633,15 @@ function renderMob(){
   $('#mobGo').style.display = m.lat == null ? 'none' : '';
   $('#mobPick').style.display = ''; // 誤差が大きい・古い位置のときに直せるよう、対応中はいつも出す
   // 地図の見える範囲が狭いとき（低い画面・横向き）は、パネルを1列に縮める
-  const wasT = el.classList.contains('tight');
-  el.classList.remove('tight'); document.body.classList.remove('mobTight');
-  const tight = curTab === 'map' && freePad().free < 180;
-  el.classList.toggle('tight', tight); document.body.classList.toggle('mobTight', tight);
-  if (tight !== wasT && !renderMob.again){ renderMob.again = true; try{ renderMob(); }finally{ renderMob.again = false; } return; } // 距離の表示先が変わるので描き直す
+  // 縮め方は、画面の大きさ・案内・警告・開いた補足が変わったときだけ決め直す（3秒ごとに上部がちらつかないように）
+  const key = [innerWidth, innerHeight, curTab, navTarget?.id, $('#mobWarn').textContent.length, $('#mobMore')?.open].join('|');
+  if (key !== renderMob.key){
+    renderMob.key = key;
+    const was = mobLevel(), free = () => freePad().free;
+    let lv = 0; mobLevel(0);
+    if (curTab === 'map' && free() < 180){ lv = 1; mobLevel(1); if (free() < 140){ lv = 2; mobLevel(2); } }
+    if (lv !== was && !renderMob.again){ renderMob.again = true; try{ renderMob(); }finally{ renderMob.again = false; } return; } // 距離の表示先が変わるので描き直す
+  }
   document.documentElement.style.setProperty('--mobH', el.offsetHeight + 'px');
   // パネルの高さが変わったら、追従中の自船を隠れない範囲の真ん中へ置き直す
   if (follow && me && renderMob.h !== el.offsetHeight){ renderMob.h = el.offsetHeight; requestAnimationFrame(() => map.panTo(followCenter(L.latLng(me.lat, me.lon)), {animate:false})); }
@@ -1679,6 +1695,14 @@ function setNav(p){
   if (activeMob) renderMob(); // 案内カードの有無で落水パネルの中身と大きさが変わる
   if (navTarget) setTimeout(() => requestAnimationFrame(fitNav), 80);
 }
+// 落水パネルの縮め方：0＝通常、1＝案内カードを畳みボタン1列、2＝さらに上部の小札・日没帯・補足も隠す
+function mobLevel(lv){
+  const el = $('#mobPanel'), b = document.body;
+  if (lv == null) return b.classList.contains('mobTight2') ? 2 : b.classList.contains('mobTight') ? 1 : 0;
+  el.classList.toggle('tight', lv > 0); el.classList.toggle('tight2', lv > 1); b.classList.toggle('mobTight', lv > 0);
+  if (b.classList.contains('mobTight2') !== lv > 1){ b.classList.toggle('mobTight2', lv > 1); document.documentElement.style.setProperty('--barH', $('#bar').offsetHeight + 'px'); map.invalidateSize({pan:false}); }
+  return lv;
+}
 // 地図のうち、案内カード・右のボタン列・下のパネルに隠れない範囲（余白 px）。見えていない部品は数えない
 function freePad(){
   const mr = $('#map').getBoundingClientRect(), vis = el => el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0; // 固定表示の部品は offsetParent が null なので使わない
@@ -1688,8 +1712,8 @@ function freePad(){
   let bottom = Math.max(vis(db) ? mr.bottom - db.getBoundingClientRect().top + 12 : 16, vis(mp) ? mr.bottom - mp.getBoundingClientRect().top + 12 : 16); // 落水対応パネルも避ける
   top = Math.max(16, top); right = Math.max(16, right); bottom = Math.max(16, bottom);
   const free = mr.height - top - bottom; // 実際に隠れていない高さ
-  // 見える範囲が狭くなりすぎないよう、上下・左右とも最低160px は地図を残す
-  const fitIn = (a, b, size) => { const over = a + b - (size - 160); return over > 0 ? [a - over*a/(a + b), b - over*b/(a + b)] : [a, b]; };
+  // 余白は実寸のまま使う。計算が成り立たないほど狭いとき（40px未満）だけ詰める
+  const fitIn = (a, b, size) => { const over = a + b - (size - 40); return over > 0 ? [a - over*a/(a + b), b - over*b/(a + b)] : [a, b]; };
   [top, bottom] = fitIn(top, bottom, mr.height); const [left, right2] = fitIn(16, right, mr.width);
   return {top, bottom, left, right: right2, free};
 }
@@ -2235,9 +2259,11 @@ function tripList(){
 }
 function renderTrips(){
   const ts = tripList().slice(0, 20);
-  $('#lTrips').innerHTML = ts.length ? ts.map(t => { const a = new Date(t.a), b = new Date(t.b);
-    return `<div class="item"><div class="t"><b>${a.getMonth()+1}/${a.getDate()}(${WD[a.getDay()]}) ${hm(a)}〜${ymd(a) === ymd(b) ? '' : `${b.getMonth()+1}/${b.getDate()} `}${hm(b)}　${shioName(a)}</b><span>${t.n ? `釣果 ${t.n}匹` : '釣果なし'}・流し ${t.drifts}回・実釣 ${t.fishMin >= 1 ? fmtDur(t.fishMin) + '（流しは測位できた時間・かかりは錨泊の経過時間）' : '記録なし'}${t.prov ? '<b class="st-warn">・進行中（暫定）</b>' : ''}・出船 ${fmtDur((t.b - t.a)/60000)}${t.dist ? '・航走 ' + fmtDist(t.dist) : ''}${t.fishMin >= 30 ? `・記録した実釣時間内 ${t.nIn}匹（1時間あたり ${(t.nIn/(t.fishMin/60)).toFixed(1)}匹）` : ''}</span></div></div>`; }).join('')
-    : '<p class="note" style="padding:8px">GPSで航跡が残ると、釣れなかった日も釣行としてここにまとまります（8時間あくか「ここから新しい釣行」で区切り）。</p>';
+  $('#lTrips').innerHTML = (ts.length ? '<p class="note" style="margin:4px 0">実釣＝流しはGPSで測位できた時間、かかりは錨を打ってから上げるまでの時間。匹/時はその間の釣果で計算。</p>' : '') + (ts.length ? ts.map(t => { const a = new Date(t.a), b = new Date(t.b);
+    return `<div class="item"><div class="t"><b>${a.getMonth()+1}/${a.getDate()}(${WD[a.getDay()]}) ${hm(a)}〜${ymd(a) === ymd(b) ? '' : `${b.getMonth()+1}/${b.getDate()} `}${hm(b)}　${shioName(a)}${t.prov ? ' <span class="st-warn">進行中（暫定）</span>' : ''}</b>
+      <span style="display:block;font-weight:700;color:var(--text)">${t.n ? `釣果 ${t.n}匹` : '釣果なし'}・実釣 ${t.fishMin >= 1 ? fmtDur(t.fishMin) : '記録なし'}${t.fishMin >= 30 ? `・${(t.nIn/(t.fishMin/60)).toFixed(1)}匹/時（実釣中 ${t.nIn}匹）` : ''}</span>
+      <span style="display:block">流し ${t.drifts}回・出船 ${fmtDur((t.b - t.a)/60000)}${t.dist ? '・航走 ' + fmtDist(t.dist) : ''}</span></div></div>`; }).join('')
+    : '<p class="note" style="padding:8px">GPSで航跡が残ると、釣れなかった日も釣行としてここにまとまります（8時間あくか「ここから新しい釣行」で区切り）。</p>');
 }
 // 釣行の区切り（記録は8時間あくと自動で区切る。続けて別の釣行に出たときなどに手で区切る）
 function addTripBreak(silent){
@@ -2292,8 +2318,10 @@ function renderTrend(fs){
   });
   const block = (title, f) => {
     const c = {}, cIn = {}; cs.forEach(p => { const k = f(p.time, p.lat, p.lon); if (!k) return; c[k] = (c[k] || 0) + (p.count || 1); if (inSess(p)) cIn[k] = (cIn[k] || 0) + (p.count || 1); });
-    const arr = Object.entries(c).sort((a, b) => b[1] - a[1]), mx = Math.max(...arr.map(x => x[1])), hrs = effort(f);
-    return `<div class="bars"><div class="note" style="margin-top:8px;font-weight:700">${title}</div>${arr.slice(0, 5).map(([k, v]) => `<div class="b"><span>${esc(k)}</span><i style="width:${Math.max(4, v/mx*100)*0.45}%"></i><em>${v}匹${hrs[k] >= 0.5 ? `<span class="note">（記録した${hrs[k].toFixed(1)}時間に${cIn[k] || 0}匹＝${((cIn[k] || 0)/hrs[k]).toFixed(1)}匹/時）</span>` : ''}</em></div>`).join('')}</div>`;
+    const hrs = effort(f);
+    Object.keys(hrs).forEach(k => { if (hrs[k] >= 0.5 && !(k in c)) c[k] = 0; }); // 釣りをしたが釣れなかった区分も残す
+    const arr = Object.entries(c).sort((a, b) => b[1] - a[1] || (hrs[b[0]] || 0) - (hrs[a[0]] || 0)), mx = Math.max(1, ...arr.map(x => x[1]));
+    return `<div class="bars"><div class="note" style="margin-top:8px;font-weight:700">${title}</div>${arr.slice(0, 6).map(([k, v]) => `<div class="b"><span>${esc(k)}</span><i style="width:${v ? Math.max(4, v/mx*100)*0.45 : 0}%"></i><em>${v}匹${hrs[k] >= 0.5 ? `<span class="note">（記録した${hrs[k].toFixed(1)}時間に${cIn[k] || 0}匹＝${((cIn[k] || 0)/hrs[k]).toFixed(1)}匹/時）</span>` : ''}</em></div>`).join('')}</div>`;
   };
   const flow = (t) => { const s = tideStage(new Date(t)); return s ? (s.key === 'slack' ? '満干潮の前後' : s.dir) : null; };
   $('#lTrend').innerHTML = `<div class="note">${fs ? esc(fs) : '全魚種'}・${cs.length}件の記録の内訳。（ ）は記録した釣りの時間（流しはGPSで測位できた時間、かかりは錨を打ってから上げるまでの経過時間）と、その間の釣果だけで数えた1時間あたりの匹数です。</div>` +
@@ -2349,7 +2377,8 @@ function cleanCond(c, t){
     wind:numIn(c.wind, 0, 80), windDir:numIn(c.windDir, 0, 360), wave:numIn(c.wave, 0, 30), sst:numIn(c.sst, -5, 40), temp:numIn(c.temp, -40, 50), pres:numIn(c.pres, 850, 1100),
     drift:numIn(c.drift, 0, 20), driftId:str(c.driftId, 40) || null, mode:['run','drift','anchor'].includes(c.mode) ? c.mode : null, wxSrc: c.wxSrc === 'モデル値（保存予報）' ? c.wxSrc : c.wxSrc ? 'モデル値' : undefined, waveSrc: c.waveSrc === '保存予報' ? '保存予報' : undefined,
     wxAt: okTime(c.wxAt) ? c.wxAt : undefined, wxFrom: str(c.wxFrom, 40) || undefined, wxPending: c.wxPending === true ? true : undefined,
-    wxCached: c.wxCached === true ? true : undefined, waveCached: c.waveCached === true ? true : undefined, waveAt: okTime(c.waveAt) ? c.waveAt : undefined, waveFrom: str(c.waveFrom, 40) || undefined
+    wxCached: c.wxCached === true ? true : undefined, waveCached: c.waveCached === true ? true : undefined, waveAt: okTime(c.waveAt) ? c.waveAt : undefined, waveFrom: str(c.waveFrom, 40) || undefined,
+    sstSrc: c.sstSrc === '保存予報' ? '保存予報' : undefined, sstCached: c.sstCached === true ? true : undefined, sstAt: okTime(c.sstAt) ? c.sstAt : undefined, sstFrom: str(c.sstFrom, 40) || undefined, wxTries: numIn(c.wxTries, 0, 99) ?? undefined
   });
 }
 function cleanSettings(j){
