@@ -1469,7 +1469,9 @@ $('#pSave').onclick = () => {
   if (isNew || moved) Object.assign(c, {posSrc:pPosInfo.posSrc, acc:pPosInfo.acc, fixAt:pPosInfo.fixAt});
   if (editType === 'catch') Object.assign(c, {species: $('#pSpecies').value.trim(), method: $('#pMethod').value.trim(), size: num('#pSize'), count: Math.max(1, Math.round(num('#pCount') ?? 1)), depth: num('#pDepth')});
   // 日時や位置を直したら、潮などはその日時で計算し直す
-  if (c.type === 'catch' && (isNew || moved)) c.cond = Object.assign(snapshotCond(c.time, !isNew), isNew ? {mode: p.cond?.mode ?? null, drift: p.cond?.drift ?? null, driftId: p.cond?.driftId ?? null} : {});
+  // 新しい釣果でも、入力を始めた時から日時・位置を変えたら、その時の流しとは限らないので流しの情報は付けない
+  const t0 = new Date(pOrig.time).getTime() || time, keepLive = isNew && (!timeEdited || Math.abs(time - t0) <= 600000) && (!posEdited || distM(ll, [p.lat, p.lon]) <= 300);
+  if (c.type === 'catch' && (isNew || moved)) c.cond = Object.assign(snapshotCond(c.time, true), keepLive ? {mode: p.cond?.mode ?? null, drift: p.cond?.drift ?? null, driftId: p.cond?.driftId ?? null} : {});
   const next = isNew ? points.concat(c) : points.map(x => x.id === c.id ? c : x);
   if (!commitPoints(next)){ $('#pErr').textContent = '⚠ ' + SAVE_FAIL; $('#pErr').style.display = 'block'; return; }
   // 対応中の落水地点を動かしたら、救助パネル（activeMob）と案内先も同じ座標にする
@@ -2301,7 +2303,7 @@ function renderDrifts(){
   const lim = renderDrifts.lim || 40, rows = all.slice(0, lim);
   const head = months.length > 1 ? `<div class="row" style="padding:8px 0 0"><label class="note" for="lDriftMonth">月で絞る</label><select id="lDriftMonth" style="flex:1"><option value="">すべて（${log.length}件）</option>${months.map(m => `<option ${m === renderDrifts.month ? 'selected' : ''}>${m}</option>`).join('')}</select></div>` : '';
   const more = all.length > lim ? `<button class="btn sm wide" id="lDriftMore" style="margin:6px 0">さらに表示（残り ${all.length - lim}件）</button>` : '';
-  $('#lDrifts').innerHTML = head + (rows.length ? rows.map(({x, c, n}) => `<div class="item"><div class="t"><b>${fmtDT(x.start)}　流し${x.n || ''}　${n ? `🐟${n}匹` : '釣果なし'}</b><span>${fmtDur((x.end - x.start)/60000)}・${fmtDist(trackDist(x.pts))}${c.length ? '・' + esc([...new Set(c.map(p => p.species).filter(Boolean))].join('・')) : ''}</span></div><button class="btn sm" data-dshow="${esc(x.id)}">地図</button><button class="btn sm" data-dgo="${esc(x.id)}" aria-label="始点へ向かう">➤始点</button></div>`).join('')
+  $('#lDrifts').innerHTML = head + (rows.length ? rows.map(({x, c, n}) => `<div class="item"><div class="t"><b>${fmtDT(x.start)}${x.n ? `　流し${x.n}` : ''}</b><span style="display:block;font-weight:700;color:var(--text)">${n ? `🐟 ${n}匹${c.length ? '・' + esc([...new Set(c.map(p => p.species).filter(Boolean))].join('・')) : ''}` : '釣果なし'}</span><span style="display:block">${fmtDur((x.end - x.start)/60000)}・${fmtDist(trackDist(x.pts))}</span></div><button class="btn sm" data-dshow="${esc(x.id)}">地図</button><button class="btn sm" data-dgo="${esc(x.id)}" aria-label="始点へ向かう">➤始点</button></div>`).join('')
     : `<p class="note" style="padding:8px">${fs ? 'この魚種が釣れた流しはまだありません。' : '「流し」モードで流すと、通った筋がここに残ります。'}</p>`) + more;
   if ($('#lDriftMonth')) $('#lDriftMonth').onchange = e => { renderDrifts.month = e.target.value; renderDrifts.lim = 40; renderDrifts(); };
   if ($('#lDriftMore')) $('#lDriftMore').onclick = () => { renderDrifts.lim = lim + 40; renderDrifts(); };
@@ -2329,7 +2331,8 @@ $('#pastFile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return; e.target.value = '';
   let j; try{ j = JSON.parse(await f.text()); }catch(err){ return toast('ファイルを読めませんでした（このアプリで書き出した JSON を選んでください）', true); }
   const okPts = a => Array.isArray(a) ? a.filter(q => Array.isArray(q) && okLL(q[0], q[1]) && okTime(q[2])).map(q => q[3] === 1 ? [q[0], q[1], q[2], 1] : [q[0], q[1], q[2]]) : [];
-  const drifts = (Array.isArray(j?.driftLog) ? j.driftLog : []).filter(x => x && x.kind === 'drift' && okTime(x.start)).map(x => ({id: str(x.id, 40) || uid(), n: numIn(x.n, 0, 999), start:x.start, end: okTime(x.end) ? x.end : x.start, pts: okPts(x.pts)})).filter(x => x.pts.length > 1).sort((a, b) => b.start - a.start);
+  const ad = j?.active?.drift, adx = ad && Array.isArray(ad.pts) && okTime(ad.t) ? [{kind:'drift', id: ad.id, n: ad.n, start: ad.t, end: ad.pts[ad.pts.length - 1]?.[2], pts: ad.pts}] : [];
+  const drifts = (Array.isArray(j?.driftLog) ? j.driftLog : []).concat(adx).filter((x, k, a) => a.findIndex(y => y && x && y.id === x.id && y.id) === k || !x?.id).filter(x => x && x.kind === 'drift' && okTime(x.start)).map(x => ({id: str(x.id, 40) || uid(), n: numIn(x.n, 0, 999), start:x.start, end: okTime(x.end) ? x.end : x.start, pts: okPts(x.pts)})).filter(x => x.pts.length > 1).sort((a, b) => b.start - a.start);
   const catches = (Array.isArray(j?.points) ? j.points : []).filter(p => p && p.type === 'catch' && okLL(p.lat, p.lon) && okTime(p.time)).map(p => ({id: str(p.id, 40), type:'catch', lat:p.lat, lon:p.lon, time:p.time, species: str(p.species, 40), size: numIn(p.size, ...NUM_RANGE.size), count: Math.round(numIn(p.count, ...NUM_RANGE.count) ?? 1), cond: {driftId: str(p.cond?.driftId, 40) || null}}));
   if (!drifts.length && !catches.length) return toast('このファイルには流しの記録も釣果もありません', true);
   past = {name: str(f.name, 60), drifts, catches, lim: 40, fs: ''}; renderPast();
@@ -2344,12 +2347,18 @@ function renderPast(){
     <div class="note">今の記録には取り込んでいません（見るだけ）。流し ${past.drifts.length}件・釣果 ${past.catches.length}件</div>
     ${sp.length ? `<div class="row" style="margin-top:6px"><label class="note" for="pastSp">魚種</label><select id="pastSp" style="flex:1"><option value="">すべて</option>${sp.map(k => `<option ${k === past.fs ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>` : ''}
     ${rows.slice(0, past.lim).map(({x, c, n}) => `<div class="item"><div class="t"><b>${fmtDT(x.start)}　${n ? `🐟${n}匹` : '釣果なし'}</b><span>${fmtDur((x.end - x.start)/60000)}・${fmtDist(trackDist(x.pts))}${c.length ? '・' + esc([...new Set(c.map(p => p.species).filter(Boolean))].join('・')) : ''}</span></div><button class="btn sm" data-pshow="${esc(x.id)}">地図</button><button class="btn sm" data-pgo="${esc(x.id)}" aria-label="始点へ向かう">➤始点</button></div>`).join('') || '<p class="note">条件に合う流しはありません。</p>'}
-    ${rows.length > past.lim ? `<button class="btn sm wide" id="pastMore" style="margin-top:6px">さらに表示（残り ${rows.length - past.lim}件）</button>` : ''}`;
+    ${rows.length > past.lim ? `<button class="btn sm wide" id="pastMore" style="margin-top:6px">さらに表示（残り ${rows.length - past.lim}件）</button>` : ''}
+    ${(() => { const ids = new Set(past.drifts.map(x => x.id)), solo = past.catches.filter(p => !ids.has(p.cond.driftId) && (!past.fs || p.species === past.fs)); return solo.length ? `<div class="note" style="margin-top:8px;font-weight:700">流しに付いていない釣果 ${solo.length}件</div>` + solo.slice(-30).reverse().map(p => `<div class="item"><div class="t"><b>${fmtDT(p.time)}　${esc(p.species || '魚種なし')}${p.count > 1 ? ` ${p.count}匹` : ''}${p.size ? ` ${p.size}cm` : ''}</b></div><button class="btn sm" data-pcatch="${esc(p.id)}" data-ll="${p.lat},${p.lon}">地図</button></div>`).join('') : ''; })()}`;
   $('#pastX').onclick = () => { past = null; renderPast(); histLayer.clearLayers(); $('#histChip').style.display = 'none'; };
   if ($('#pastSp')) $('#pastSp').onchange = e => { past.fs = e.target.value; past.lim = 40; renderPast(); };
   if ($('#pastMore')) $('#pastMore').onclick = () => { past.lim += 40; renderPast(); };
 }
 $('#pastBox').onclick = e => {
+  if (e.target.dataset.ll){ const [la, lo] = e.target.dataset.ll.split(',').map(Number); showTab('map'); setFollow(false); histLayer.clearLayers();
+    L.circleMarker([la, lo], {radius:12, color:'#ff8a3d', weight:4, fill:false, interactive:false}).addTo(histLayer);
+    $('#histChip').innerHTML = `<span>過去の記録：釣果の地点を表示中</span><button class="x" id="histX" aria-label="表示を終える">✕</button>`; $('#histChip').style.display = 'flex';
+    $('#histX').onclick = () => { histLayer.clearLayers(); $('#histChip').style.display = 'none'; };
+    settleMap(); map.setView([la, lo], closeZ(), {animate:false}); return; }
   const id = e.target.dataset.pshow || e.target.dataset.pgo; if (!id || !past) return;
   const x = past.drifts.find(v => v.id === id); if (!x) return;
   showDrift(x, past.catches.filter(p => p.cond.driftId === x.id), !!e.target.dataset.pgo, '過去の記録：');
@@ -2636,6 +2645,12 @@ function renderSafety(){
   renderReturnWx(); renderPortWx();
 }
 // 帰港予定までの予報の最悪値
+// 予報の鮮度の注意（保存分／3時間より古い／取り直しに失敗）。無ければ空
+function wxAgeNote(at, cached, failAt){
+  const old = Date.now() - at > 3*3600000, fail = failAt > at;
+  if (!cached && !old && !fail) return '';
+  return `<div class="st-warn" style="font-size:15px;font-weight:800">⚠ ${cached ? '保存予報' : '古い予報'}・${fmtDur((Date.now() - at)/60000)}前に取得${fail ? '／更新できません' : ''}</div>`;
+}
 function renderReturnWx(){
   const el = $('#sfWx'); if (!wxData || Date.now() - wxData.at > 12*3600000){ el.innerHTML = wxData ? '<b class="st-warn">予報が古いため、帰港予定までの判定はしません。電波のある所で天気タブの「更新」を</b>' : '帰港予定までの予報：取得中か圏外です'; return; }
   const [H, M] = ($('#sfReturn').value || '').split(':').map(Number); if (!isFinite(H)) return;
@@ -2652,7 +2667,7 @@ function renderReturnWx(){
       その地点の判定：${LV_TEXT[wst]}　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m</details>`;
     return;
   }
-  el.innerHTML = `<b>釣り場</b>（〜帰港予定 ${hm(end)}）：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m　<span class="note">${hm(new Date(wxData.at))}取得</span>${wxMoved() ? `<br><b class="st-warn">${esc(place)}</b>` : ''}${wxReasons(h, mh, idx, end)}
+  el.innerHTML = `<b>釣り場</b>（〜帰港予定 ${hm(end)}）：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m　<span class="note">${hm(new Date(wxData.at))}取得</span>${wxAgeNote(wxData.at, wxData.cached, wxFailAt)}${wxMoved() ? `<br><b class="st-warn">${esc(place)}</b>` : ''}${wxReasons(h, mh, idx, end)}
     <details class="note"><summary style="min-height:40px;display:flex;align-items:center">予報の詳細</summary>${esc(place)} ${fmtLL(wxData.ll[0], wxData.ll[1])}・${fmtDT(wxData.at)} 取得${me ? `・現在地から${fmtDist(distM([me.lat, me.lon], wxData.ll))}` : ''}</details>`;
 }
 // ×や？の理由（雷・強い突風・視界不良・欠測）と、予報が帰港予定まで届いているか
@@ -2681,8 +2696,8 @@ async function renderPortWx(){
       const q = `latitude=${tgt.lat.toFixed(3)}&longitude=${tgt.lon.toFixed(3)}&timezone=Asia%2FTokyo&forecast_days=2`;
       const [w, m] = await Promise.all([getJson(`https://api.open-meteo.com/v1/forecast?${q}&hourly=weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&wind_speed_unit=ms`), getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height`).catch(() => ({data:{}, at:Date.now()}))]);
       if (req !== portReq) return;
-      portWx = {lat:tgt.lat, lon:tgt.lon, at:Math.min(w.at, m.at), w:w.data, m:m.data}; store.set('portWx', portWx);
-    }catch(e){}
+      portWx = {lat:tgt.lat, lon:tgt.lon, at:Math.min(w.at, m.at), cached: !!(w.cached || m.cached), w:w.data, m:m.data}; store.set('portWx', portWx);
+    }catch(e){ if (req === portReq) renderPortWx.failAt = Date.now(); }
   }
   if (!portWx || distM([portWx.lat, portWx.lon], [tgt.lat, tgt.lon]) > 200){ el.innerHTML = `帰る先（${esc(name)}）の予報：取得できません（圏外？）。この港の予報はまだありません`; return; }
   if (Date.now() - portWx.at > 12*3600000){ el.innerHTML = `<b class="st-warn">帰る先（${esc(name)}）の予報が古いため判定しません</b>`; return; }
@@ -2693,7 +2708,7 @@ async function renderPortWx(){
   const lvs = idx.map(i => hourLevel(h, mh, i).lv), wst = lvs.includes('r') ? 'r' : lvs.includes('n') ? 'n' : lvs.includes('y') ? 'y' : 'g';
   const mx = a => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
   el.innerHTML = `<b>帰る先 ${esc(name)}</b>：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　風 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}・瞬${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}m/s・波 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m　<span class="note">${hm(new Date(portWx.at))}取得</span>${wxReasons(h, mh, idx, end)}
-    <details class="note"><summary style="min-height:40px;display:flex;align-items:center">予報の詳細</summary>${esc(name)} ${fmtLL(portWx.lat, portWx.lon)}・${fmtDT(portWx.at)} 取得</details>`;
+    ${wxAgeNote(portWx.at, portWx.cached, renderPortWx.failAt || 0)}<details class="note"><summary style="min-height:40px;display:flex;align-items:center">予報の詳細</summary>${esc(name)} ${fmtLL(portWx.lat, portWx.lon)}・${fmtDT(portWx.at)} 取得</details>`;
 }
 $('#sfChecks').onchange = e => { const i = +e.target.dataset.ck, today = ymd(new Date()), st = store.get('checks', {}); let c = st.d === today ? st.c : []; c = e.target.checked ? [...new Set(c.concat(i))] : c.filter(x => x !== i); store.set('checks', {d:today, c}); };
 $('#sfCheckReset').onclick = () => { store.set('checks', {}); renderSafety(); };
