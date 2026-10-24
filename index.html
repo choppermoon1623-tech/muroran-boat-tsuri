@@ -162,7 +162,7 @@ h3{font-size:15px;margin:18px 0 8px;color:var(--sub)}
 .btn.warnb{background:var(--bad);border-color:var(--bad);color:#fff}
 .btn.sm{min-height:44px;padding:0 12px;font-size:14px}
 .btn.wide{width:100%}
-.note{font-size:13px;color:var(--sub);line-height:1.6}
+.note{font-size:14px;color:var(--sub);line-height:1.55} /* 船上でも読めるよう補足も14px */
 .big{font-size:28px;font-weight:900}
 table.fc{border-collapse:collapse;font-size:13px;width:100%}
 table.fc th,table.fc td{padding:6px 3px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -486,6 +486,8 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
 </div>
 
 <dialog id="choiceDlg" style="max-width:min(92vw,440px);background:var(--panel);color:var(--text);border:2px solid var(--accent);border-radius:16px;padding:14px">
+  <div class="row" style="justify-content:flex-end;margin-bottom:6px"><button type="button" class="btn sm" id="chMob" style="background:#b30000;color:#fff;border-color:#ff8080">MOB（落水）</button></div>
+  <div id="chAlarm" style="display:none;background:#b00000;color:#fff;border-radius:10px;padding:8px 10px;margin-bottom:8px;font-weight:900"></div>
   <div id="choiceBody" style="white-space:pre-line;font-size:15px;line-height:1.5"></div>
   <div id="choiceBtns" style="display:flex;flex-direction:column;gap:8px;margin-top:12px"></div>
 </dialog>
@@ -660,13 +662,15 @@ const hereLabel = () => { const k = gpsState().k; return k === 'ok' || k === 'no
 const gpsRough = () => !!me && gpsAge() <= GPS_STALE && !me.suspect && !(me.acc < GPS_ROUGH);
 
 // ===== 座標 =====
+// 度・分（小数3桁）に分ける。丸めて60分になったら度へ繰り上げる
+function degMin(v){ const a = Math.abs(v); let d = Math.floor(a), m = +((a - d)*60).toFixed(3); if (m >= 60){ d += 1; m = 0; } return [d, m.toFixed(3)]; }
 function fmtCoord(v, isLat){
   if (settings.fmt === 'dec') return v.toFixed(5);
-  const a = Math.abs(v), d = Math.floor(a), m = (a - d) * 60;
-  return `${isLat ? (v>=0?'N':'S') : (v>=0?'E':'W')}${d}°${m.toFixed(3).padStart(6,'0')}'`;
+  const [d, m] = degMin(v);
+  return `${isLat ? (v>=0?'N':'S') : (v>=0?'E':'W')}${d}°${m.padStart(6,'0')}'`;
 }
 const fmtLL = (lat, lon) => `${fmtCoord(lat,true)} ${fmtCoord(lon,false)}`;
-const fmtDM = (lat, lon) => { const f = (v, a, b) => { const x = Math.abs(v), d = Math.floor(x); return `${v>=0?a:b}${d}°${((x-d)*60).toFixed(3)}'`; }; return `${f(lat,'北緯','南緯')} ${f(lon,'東経','西経')}`; };
+const fmtDM = (lat, lon) => { const f = (v, a, b) => { const [d, m] = degMin(v); return `${v>=0?a:b}${d}°${m}'`; }; return `${f(lat,'北緯','南緯')} ${f(lon,'東経','西経')}`; };
 function parseLL(s){
   s = s.replace(/[０-９．，]/g, c => c === '，' ? ',' : String.fromCharCode(c.charCodeAt(0)-0xFEE0));
   const n = (s.match(/-?\d+(\.\d+)?/g) || []).map(Number);
@@ -1347,6 +1351,9 @@ function updateMode(){
   const pa = $('#pAlarm');
   if (dlg.open && (anchorAlarm || st.gpsBad)){ pa.style.display = 'block'; pa.innerHTML = `${anchorAlarm ? `⚠ 走錨のおそれ　錨から ${Math.round(d)}m` : '⚠ GPS不良：走錨の見張りができていません'}<br><button type="button" class="btn sm" id="pToAlarm" class="btn sm alarmBtn" style="margin-top:6px">警報を見る（入力はそのまま残ります）</button>`; $('#pToAlarm').onclick = () => { dlg.close(); showTab('map'); toast('編集中の内容は残っています', false, 8000, [['編集に戻る', () => dlg.showModal()]]); }; }
   else pa.style.display = 'none';
+  const ca = $('#chAlarm');
+  if ($('#choiceDlg').open && (anchorAlarm || st.gpsBad)){ ca.style.display = 'block'; ca.innerHTML = `${anchorAlarm ? `⚠ 走錨のおそれ　錨から ${Math.round(d)}m` : '⚠ GPS不良：走錨の見張りができていません'}<br><button type="button" class="btn sm alarmBtn" id="chToAlarm" style="margin-top:6px">警報を見る（この確認は取りやめ）</button>`; $('#chToAlarm').onclick = () => { $('#choiceDlg').close(); showTab('map'); }; }
+  else ca.style.display = 'none';
   if (anchorAlarm){ ga.className = 'bad'; ga.innerHTML = `⚠ 走錨のおそれ　錨から ${Math.round(d)}m（警報 ${anchor.r}m）${alarmMuted ? '・消音中' : ''}`; ga.style.display = away ? 'block' : 'none'; }
   else if (st.gpsBad){ ga.className = 'bad'; ga.textContent = '⚠ GPS不良：走錨の見張りができていません'; ga.style.display = away ? 'block' : 'none'; }
   else { ga.className = 'info'; ga.textContent = `⚓ 錨泊の見張り中　${d == null ? '--' : Math.round(d)}m / ${anchor.r}m`; ga.style.display = away ? 'block' : 'none'; }
@@ -2348,10 +2355,11 @@ function renderPast(){
     ${sp.length ? `<div class="row" style="margin-top:6px"><label class="note" for="pastSp">魚種</label><select id="pastSp" style="flex:1"><option value="">すべて</option>${sp.map(k => `<option ${k === past.fs ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></div>` : ''}
     ${rows.slice(0, past.lim).map(({x, c, n}) => `<div class="item"><div class="t"><b>${fmtDT(x.start)}　${n ? `🐟${n}匹` : '釣果なし'}</b><span>${fmtDur((x.end - x.start)/60000)}・${fmtDist(trackDist(x.pts))}${c.length ? '・' + esc([...new Set(c.map(p => p.species).filter(Boolean))].join('・')) : ''}</span></div><button class="btn sm" data-pshow="${esc(x.id)}">地図</button><button class="btn sm" data-pgo="${esc(x.id)}" aria-label="始点へ向かう">➤始点</button></div>`).join('') || '<p class="note">条件に合う流しはありません。</p>'}
     ${rows.length > past.lim ? `<button class="btn sm wide" id="pastMore" style="margin-top:6px">さらに表示（残り ${rows.length - past.lim}件）</button>` : ''}
-    ${(() => { const ids = new Set(past.drifts.map(x => x.id)), solo = past.catches.filter(p => !ids.has(p.cond.driftId) && (!past.fs || p.species === past.fs)); return solo.length ? `<div class="note" style="margin-top:8px;font-weight:700">流しに付いていない釣果 ${solo.length}件</div>` + solo.slice(-30).reverse().map(p => `<div class="item"><div class="t"><b>${fmtDT(p.time)}　${esc(p.species || '魚種なし')}${p.count > 1 ? ` ${p.count}匹` : ''}${p.size ? ` ${p.size}cm` : ''}</b></div><button class="btn sm" data-pcatch="${esc(p.id)}" data-ll="${p.lat},${p.lon}">地図</button></div>`).join('') : ''; })()}`;
+    ${(() => { const ids = new Set(past.drifts.map(x => x.id)), solo = past.catches.filter(p => !ids.has(p.cond.driftId) && (!past.fs || p.species === past.fs)); solo.sort((a, b) => b.time - a.time); const sl = past.slim || 30; return solo.length ? `<div class="note" style="margin-top:8px;font-weight:700">流しに付いていない釣果 ${solo.length}件</div>` + solo.slice(0, sl).map(p => `<div class="item"><div class="t"><b>${fmtDT(p.time)}　${esc(p.species || '魚種なし')}${p.count > 1 ? ` ${p.count}匹` : ''}${p.size ? ` ${p.size}cm` : ''}</b></div><button class="btn sm" data-pcatch="${esc(p.id)}" data-ll="${p.lat},${p.lon}">地図</button></div>`).join('') + (solo.length > sl ? `<button class="btn sm wide" id="pastSoloMore" style="margin-top:6px">さらに表示（残り ${solo.length - sl}件）</button>` : '') : ''; })()}`;
   $('#pastX').onclick = () => { past = null; renderPast(); histLayer.clearLayers(); $('#histChip').style.display = 'none'; };
-  if ($('#pastSp')) $('#pastSp').onchange = e => { past.fs = e.target.value; past.lim = 40; renderPast(); };
+  if ($('#pastSp')) $('#pastSp').onchange = e => { past.fs = e.target.value; past.lim = 40; past.slim = 30; renderPast(); };
   if ($('#pastMore')) $('#pastMore').onclick = () => { past.lim += 40; renderPast(); };
+  if ($('#pastSoloMore')) $('#pastSoloMore').onclick = () => { past.slim = (past.slim || 30) + 30; renderPast(); };
 }
 $('#pastBox').onclick = e => {
   if (e.target.dataset.ll){ const [la, lo] = e.target.dataset.ll.split(',').map(Number); showTab('map'); setFollow(false); histLayer.clearLayers();
@@ -2808,7 +2816,9 @@ function askChoice(text, btns){
     let done = false; const fin = v => { if (done) return; done = true; d.close(); res(v); };
     $('#choiceBtns').querySelectorAll('[data-ch]').forEach(b => b.onclick = () => fin(btns[+b.dataset.ch][1]));
     d.onclose = () => fin(btns[btns.length - 1][1]);
-    d.showModal();
+    // 落水：選ぶのはやめて（最後の選択肢＝取りやめ）、すぐ落水の記録へ
+    $('#chMob').onclick = () => { d.close(); $('#fMob').click(); };
+    d.showModal(); if (typeof anchorState === 'function' && anchor) updateMode();
   });
 }
 function syncSettingsUI(){
