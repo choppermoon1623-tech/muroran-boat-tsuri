@@ -29,6 +29,8 @@ body.night #catchBtn{background:#3a0000;color:#ff9a9a;border:2px solid #ff6060}
 body.night #toast{background:#1a0000;color:#ff9a9a;border:1px solid #ff4040}
 .aheadTag{background:#3fb8ff;color:#06263d;font-weight:900;font-size:13px;border:2px solid #fff;border-radius:12px;text-align:center;line-height:20px;white-space:nowrap}
 body.night .aheadTag{background:#600;color:#ffb0b0;border-color:#f44}
+#sunWarn{padding:4px 10px 6px;font-size:15px;font-weight:800;color:var(--warn)}
+#sunWarn.bad{color:#fff;background:#8a1010}
 .alarmBtn{background:#fff!important;color:#b00000!important}
 body.night .alarmBtn,body.night #mobPanel a.btn{background:#3a0000!important;color:#ffb0b0!important;border-color:#ff4040!important}
 body.night #toast .btn{background:#300;color:#ff9a9a;border-color:#ff4040}
@@ -113,7 +115,7 @@ body.night #navBox{background:rgba(10,0,0,.96)}
 #navBox .big2{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums}
 #navArrow{flex:none;width:44px;height:44px}
 #timebar{background:rgba(16,44,69,.96);border:1px solid var(--line);border-radius:14px;padding:6px 12px;display:none;font-size:13px}
-#timebar input{width:100%;height:32px}
+#timebar input{width:100%;height:44px}
 #picker{position:fixed;z-index:950;left:50%;top:calc((var(--barH,96px) + 100vh - 60px)/2);transform:translate(-50%,-50%);pointer-events:none;display:none;filter:drop-shadow(0 0 2px #fff)}
 #pickBar{position:fixed;left:8px;right:8px;z-index:1500;bottom:calc(68px + env(safe-area-inset-bottom));background:var(--panel);border:2px solid var(--accent);border-radius:14px;padding:10px 12px;display:none;box-shadow:0 2px 12px rgba(0,0,0,.5)}
 body.picking #picker,body.picking #pickBar{display:block}
@@ -247,6 +249,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
 
     <span class="cp" id="vSun">--</span>
   </div>
+  <div id="sunWarn" style="display:none"></div>
 </div>
 <div id="map"></div>
 <div id="navBox"></div>
@@ -265,7 +268,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
   <button class="fab" id="fSafety" aria-label="安全・連絡"><i>🆘</i>安全</button>
 </div>
 <div id="bottomDock">
-  <div id="timebar"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span>予報 <b id="tbLabel">--</b> <span id="tbSrc" class="note"></span></span><button class="btn sm" id="tbClose">閉じる</button></div><input type="range" id="tbRange" min="0" max="71" value="0" aria-label="予報の時刻"><div class="note" style="font-size:14px;line-height:1.35">風：平均（突風）m/s・矢印は吹いていく向き　波：有義波高m<br>色＝出船の目安（？＝突風などが未確認）</div></div>
+  <div id="timebar"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span>予報 <b id="tbLabel">--</b> <span id="tbSrc" class="note"></span></span><button class="btn sm" id="tbClose">閉じる</button></div><div class="row" style="flex-wrap:nowrap;gap:6px;margin:4px 0"><button class="btn sm" id="tbPrev" style="flex:1">◀ 1時間前</button><button class="btn sm" id="tbNow" style="flex:1">今</button><button class="btn sm" id="tbNext" style="flex:1">1時間後 ▶</button></div><input type="range" id="tbRange" min="0" max="71" value="0" aria-label="予報の時刻"><div class="note" style="font-size:14px;line-height:1.35">風：平均（突風）m/s・矢印は吹いていく向き　波：有義波高m<br>色＝出船の目安（？＝突風などが未確認）</div></div>
   <div id="modePanel"></div>
   <div class="dockRow">
     <div class="seg" id="modeSeg">
@@ -318,6 +321,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
 <section class="sheet" id="sh-log">
   <h2>記録・ポイント</h2>
   <div id="lBackupWarn"></div>
+  <div class="row" id="lNav" style="margin-bottom:8px;flex-wrap:nowrap;gap:6px"><button class="btn sm" data-lnav="lTripBox" style="flex:1">🚤 釣行</button><button class="btn sm" data-lnav="lTrendBox" style="flex:1">📊 傾向</button><button class="btn sm" data-lnav="lDrifts" style="flex:1">〰 流し</button><button class="btn sm" data-lnav="lTracks" style="flex:1">航跡</button></div>
   <details class="card" id="lSumBox"><summary style="font-weight:800;min-height:40px;display:flex;align-items:center" id="lSumHead">まとめ</summary><div id="lSummary"></div></details>
   <input id="lSearch" placeholder="🔍 魚種・名前・メモで探す" style="margin-bottom:8px">
   <div class="grid3" style="margin-bottom:8px">
@@ -816,7 +820,7 @@ OVER.forEach(o => {
       // 取得日時が混ざらないよう、海しるの取得は1つずつ順に
       msilChain = msilChain.then(async () => {
         o.ctx = {at:Infinity, cached:false};
-        try{ await o.load(o.layer); o.loaded = true; o.count = countLeaves(o.layer); o.at = isFinite(o.ctx.at) ? o.ctx.at : Date.now(); o.cached = o.ctx.cached; }
+        try{ await o.load(o.layer); o.loaded = true; o.count = countLeaves(o.layer); o.at = isFinite(o.ctx.at) ? o.ctx.at : Date.now(); o.cached = o.ctx.cached; drawGridSoon(); }
         catch(e){ o.error = e.message; toast(`「${o.name}」を取得できません（${e.message}）。圏外か、設定のキーを確かめてください。表示がない＝何もない、ではありません`, true, 7000); map.removeLayer(o.layer); shownOver.delete(o.id); }
         o.loading = false; renderLayerSheet();
       });
@@ -895,7 +899,7 @@ function drawPoints(){
       L.popup().setLatLng([p.lat, p.lon]).setContent(`<b>${near.length}件が重なっています</b>` + near.sort((a, b) => b.time - a.time).map(q => `<div><button class="btn sm" data-pid="${q.id}" style="width:100%;justify-content:flex-start;margin-top:6px">${esc(TYPES[q.type]?.ch || '')}　${esc(pointTitle(q))}<small style="margin-left:auto;opacity:.8">${fmtDT(q.time)}</small></button></div>`).join('')).openOn(map);
     });
   });
-  refreshLists();
+  refreshLists(); if (typeof drawGridSoon === 'function') drawGridSoon();
 }
 // 新しい一覧を端末に保存できたときだけ画面にも反映する（失敗したら何も変えない）
 function commitPoints(next){ if (!store.set('points', next)) return false; points = next; drawPoints(); return true; }
@@ -955,6 +959,7 @@ function onPos(pos){
   modeOnFix(ll, now, gapFix || brk);
   updateNav(); updateMode(); checkNear();
   if (activeMob) renderMob(); // 落水対応中は、GPSの復帰・途絶をすぐ反映する
+  drawGridSoon();
 }
 function renderInstruments(){
   if (!me){ return; }
@@ -1102,7 +1107,7 @@ function endDrift(){
 }
 function startDrift(quiet){
   if (!endDrift()) return;
-  if (!me || !gpsFresh()){ if (!quiet) toast('GPSの位置が入ると、流し始めの地点を記録します'); panelKey = ''; updateMode(); return; }
+  if (!me || !gpsFresh()){ if (!quiet) toast(`${gpsState().text}。確かな位置が入ると、流し始めの地点を記録します`); panelKey = ''; updateMode(); return; }
   if (me.acc > 50){ if (!quiet) toast(`GPSの誤差が大きい（±${Math.round(me.acc)}m）ので、良くなってから流し始めを記録します`, false, 5000); panelKey = ''; updateMode(); return; }
   const hist = todayDrifts();
   const n = (hist.total || hist.a.length) + 1, now = Date.now();
@@ -1120,7 +1125,7 @@ function endAnchor(){
 }
 // 新しい基準は、受信・精度・保存を確かめてから置き換える（失敗したら前の基準のまま）
 function dropAnchor(){
-  if (!me || !gpsFresh()) return toast('GPSが受信できていないので、錨の位置を記録できません' + (anchor ? '（前の錨位置で見張りを続けます）' : ''), true, 6000);
+  if (!me || !gpsFresh()) return toast(`${gpsState().text}のため、錨の位置を記録できません` + (anchor ? '（前の錨位置で見張りを続けます）' : '') + '。「地図で指定」も使えます', true, 6000);
   if (me.acc >= settings.anchorR) return toast(`GPSの誤差（±${Math.round(me.acc)}m）が警報の距離より大きいので見張れません。距離を広げるか、受信が良くなるまで待ってください`, true, 7000);
   const next = {id: anchor?.id ?? uid(), ll:[me.lat, me.lon], r: anchor?.r ?? settings.anchorR, t: anchor?.t ?? Date.now()};
   if (!store.set('anchor', next)) return toast(SAVE_FAIL, true, 9000);
@@ -1205,7 +1210,7 @@ function updateMode(){
     });
     const ok = gpsFresh();
     setText('mdSp', v?.unsure ? (v.err > 20 ? '<span style="font-size:15px" class="st-warn">GPS精度不足</span>' : '<span style="font-size:15px">計測中</span>') : `${v && ok ? v.kn.toFixed(1) : '--'}<small>kn</small>`);
-    setText('mdDir', !ok ? '<span class="st-bad">GPS途絶</span>' : v?.unsure ? '<span style="font-size:15px">計測中</span>' : v && !v.still ? `<span class="arrow" style="transform:rotate(${v.dir}deg)">↑</span>${dir16(v.dir)}` : (v ? 'ほぼ止まり' : '計測中'));
+    setText('mdDir', !ok ? `<span class="st-bad" style="font-size:15px">${{none:'GPS未受信', stale:'GPS途絶', jump:'位置確認中', rough:'精度不足'}[gpsState().k] || 'GPS不良'}</span>` : v?.unsure ? '<span style="font-size:15px">計測中</span>' : v && !v.still ? `<span class="arrow" style="transform:rotate(${v.dir}deg)">↑</span>${dir16(v.dir)}` : (v ? 'ほぼ止まり' : '計測中'));
     setText('mdDist', drift && me ? fmtDist(distM(drift.start, [me.lat, me.lon])) : '--');
     setText('mdNote', !drift && me && me.acc > 50 ? `GPSの誤差が大きい（±${Math.round(me.acc)}m）ので、流し始めの確定を待っています` : drift ? `流し${drift.n}回目（青線）　<button class="btn sm" id="mdLegend" style="min-height:44px;padding:0 10px;font-size:14px">線の見方</button> <button class="btn sm" id="mdAhead" style="min-height:44px;padding:0 10px;font-size:14px">先読み ${(settings.ahead || 120) < 60 ? '30秒' : (settings.ahead || 120)/60 + '分'}</button>` : 'GPSが入ると流し始めを記録します。');
     return;
@@ -1592,6 +1597,7 @@ function updateNav(){
       eta = (mins != null ? `港口まで ${eta}` : eta) + `<br>母港まで合計 約${fmtDur(total)}（${hm(new Date(Date.now() + total*60000))}着・港内${settings.harbor || 5}ktで+${fmtDur(inner)}）`;
     }
     if (mins != null || total != null) eta = eta.replace(/着）/, '着・直線）');
+    updateNav.eta = total != null ? Date.now() + total*60000 : null;
     if (navTarget.home && total != null){
       const s = sunTimes(new Date(), me.lat, me.lon), left = (s.set - Date.now())/60000;
       if (left > 0 && total > left) eta += ` <b class="st-bad">日没後の到着</b>`;
@@ -1632,8 +1638,9 @@ function checkNear(){
     const d = distM(here, [p.lat, p.lon]);
     const r = p.type === 'danger' ? Math.max(settings.near, 100) : settings.near;
     const near = rough ? d - acc < r : d < r; // 精度不足なら、誤差の円が届く範囲は「近い可能性」
-    if (near && !nearState[p.id]){
-      nearState[p.id] = true;
+    const lv = near ? (rough ? 'maybe' : 'sure') : null; // 通知済みの状態：maybe＝不確かな接近、sure＝確かな接近
+    if (lv && (!nearState[p.id] || (nearState[p.id] === 'maybe' && lv === 'sure'))){
+      nearState[p.id] = lv;
       buzz(p.type === 'danger' ? [400,150,400,150,400] : [200,100,200]); if (p.type === 'danger') beep();
       toast(rough ? `${p.type === 'danger' ? '⚠ 危険地点' : '◎ ポイント'}「${pointTitle(p)}」に近い可能性（GPS精度不足 ±${acc}m・距離は不確か）` : `${p.type === 'danger' ? '⚠ 危険地点' : '◎ ポイント接近'}：${pointTitle(p)}（${Math.round(d)}m）`, true, 6000);
     } else if ((rough ? d - acc : d) > r*1.5) nearState[p.id] = false;
@@ -1641,8 +1648,8 @@ function checkNear(){
   // 定置網：区域の150m手前で知らせる（区域は概略）
   fixedNets.forEach((n, i) => {
     const k = 'net' + i, dist = polyDist(here, n.rings), inside = dist === 0;
-    const near = inside || (rough ? dist - acc < 150 : dist < 150);
-    if (near && !nearState[k]){ nearState[k] = true; buzz([400,150,400]); beep(); toast(rough ? `⚠ 定置網の区域（${n.name}）に近い可能性（GPS精度不足 ±${acc}m）。網とロープに注意` : `⚠ 定置網の区域に接近（${n.name}・${n.season}）。網とロープに注意`, true, 7000); }
+    const near = inside || (rough ? dist - acc < 150 : dist < 150), lv = near ? (rough && !inside ? 'maybe' : 'sure') : null;
+    if (lv && (!nearState[k] || (nearState[k] === 'maybe' && lv === 'sure'))){ nearState[k] = lv; buzz([400,150,400]); beep(); toast(rough ? `⚠ 定置網の区域（${n.name}）に近い可能性（GPS精度不足 ±${acc}m）。網とロープに注意` : `⚠ 定置網の区域に接近（${n.name}・${n.season}）。網とロープに注意`, true, 7000); }
     else if (!near && (rough ? dist - acc : dist) > 400) nearState[k] = false;
   });
 }
@@ -1707,6 +1714,8 @@ function msilPts(){
   try{ OVER.forEach(o => { if (o.msil && o.layer && map.hasLayer(o.layer)) walk(o.layer); }); }catch(e){}
   return out.slice(0, 400);
 }
+let gridSoonT = null;
+function drawGridSoon(){ if (!(shownOver.has('wind') || shownOver.has('wave')) || gridSoonT) return; gridSoonT = setTimeout(() => { gridSoonT = null; drawGrid(); }, 3000); }
 function drawGrid(){
   if (!grid) return;
   const i = +$('#tbRange').value, t = grid.w[0].hourly.time[i];
@@ -1737,6 +1746,9 @@ function drawGrid(){
   });
 }
 $('#tbRange').oninput = drawGrid;
+const tbStep = n => { const r = $('#tbRange'); r.value = Math.min(+r.max, Math.max(+r.min, +r.value + n)); drawGrid(); };
+$('#tbPrev').onclick = () => tbStep(-1); $('#tbNext').onclick = () => tbStep(1);
+$('#tbNow').onclick = () => { if (!grid) return; const n = new Date(); n.setMinutes(0, 0, 0); const i = grid.w[0].hourly.time.indexOf(`${ymd(n)}T${pad(n.getHours())}:00`); if (i >= 0){ $('#tbRange').value = i; drawGrid(); } };
 map.on('zoomend', () => { if (shownOver.has('wind') || shownOver.has('wave')) drawGrid(); });
 $('#tbClose').onclick = () => { setOver('wind', false); setOver('wave', false); };
 
@@ -1932,7 +1944,11 @@ function updateBarTide(){
   // 日没・日の出は、近い時（2時間以内）だけ上に出す
   $('#vSun').style.display = (left > 0 && left < 120) || (now < s.rise && s.rise - now < 7200000) ? '' : 'none';
   $('#vSun').innerHTML = left > 0 && now > s.rise ? `日没まで <b class="${left < 60 ? 'st-bad' : left < 120 ? 'st-warn' : ''}">${fmtDur(left)}</b>` : `日の出 ${hm(now < s.rise ? s.rise : sunTimes(new Date(now.getTime() + 86400000), ll[0], ll[1]).rise)}`;
-  if (left > 0 && left < 60 && !updateBarTide.warned && mode !== 'run'){ updateBarTide.warned = true; toast(`日没まで${fmtDur(left)}です。帰港の準備を`, true, 8000); }
+  // 日没90分前からは、横スクロールの外（計器の直下）に「日没まで○分」を出す。帰港案内中は到着予定も並べる
+  const sw = $('#sunWarn'), showSun = left > 0 && left < 90 && now > s.rise;
+  sw.style.display = showSun ? 'block' : 'none'; sw.classList.toggle('bad', showSun && left < 30);
+  if (showSun) sw.innerHTML = `🌇 日没まで ${fmtDur(left)}（${hm(s.set)}）${navTarget?.home && updateNav.eta ? `　到着予定 ${hm(new Date(updateNav.eta))}${updateNav.eta > s.set.getTime() ? '・<b>日没後</b>' : ''}` : ''}`;
+  if (left > 0 && left < 60 && !updateBarTide.warned){ updateBarTide.warned = true; toast(`日没まで${fmtDur(left)}です。帰港の準備を`, true, 8000); }
   renderInstruments();
 }
 
@@ -2034,6 +2050,7 @@ function addTripBreak(silent){
   const b = (settings.tripBreaks || []).filter(t => Date.now() - t < 3*365*86400000).concat(Date.now()).slice(-300);
   if (applySettings({tripBreaks:b}, silent ? undefined : 'ここから新しい釣行として記録をまとめます')) refreshLists();
 }
+$('#lNav').onclick = e => { const b = e.target.closest('[data-lnav]'); if (!b) return; const el = document.getElementById(b.dataset.lnav); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({behavior:'smooth', block:'start'}); };
 $('#lTripBreak').onclick = () => { if (confirm('今の時刻で釣行を区切りますか？\n（これから付ける記録は、新しい釣行としてまとめます）')) addTripBreak(); };
 // 流しの記録：その流しでの釣果つき。地図で筋を見て、始点へ向かえる
 function renderDrifts(){
@@ -2310,7 +2327,7 @@ function renderReady(){
 function renderSafety(){
   renderReady();
   $('#sfPos').textContent = me ? fmtDM(me.lat, me.lon) : 'GPSの位置がありません';
-  $('#sfPos2').textContent = me ? `10進 ${me.lat.toFixed(5)}, ${me.lon.toFixed(5)}　${fmtDT(me.t)} 時点・誤差±${Math.round(me.acc)}m` : '空が見える場所でしばらく待ってください';
+  $('#sfPos2').innerHTML = me ? `10進 ${me.lat.toFixed(5)}, ${me.lon.toFixed(5)}　${fmtDT(me.t)} 時点・誤差±${Math.round(me.acc)}m${gpsFresh() ? '' : ` <b class="st-bad">${gpsState().text}</b>`}` : '空が見える場所でしばらく待ってください';
   const st = store.get('checks', {}), today = ymd(new Date()), c = st.d === today ? st.c : [];
   $('#sfChecks').innerHTML = CHECKS.map((t, i) => `<label class="check"><input type="checkbox" data-ck="${i}" ${c.includes(i) ? 'checked' : ''}> ${t}</label>`).join('');
   if (!$('#sfReturn').value){ const r = new Date(Date.now() + 5*3600000); $('#sfReturn').value = hm(r); }
@@ -2395,7 +2412,7 @@ $('#sfArrive').onclick = () => shareText('帰港しました', `【帰港連絡�
 $('#fSafety').onclick = () => { renderSafety(); showBs('#bsSafety'); if (!wxData || Date.now() - wxData.at > 3600000 || (me && wxData.label !== '現在地')){ wxAt = null; loadPointWx().then(renderReturnWx); } };
 // 安全画面を開いている間は現在地と経過時間を更新し続ける
 let sfTick = 0;
-setInterval(() => { if (openBs && openBs.id === 'bsSafety'){ if (++sfTick % 30 === 0){ renderReturnWx(); renderPortWx(); } if (sfTick % 5 === 0) renderReady(); $('#sfPos').textContent = me ? fmtDM(me.lat, me.lon) : 'GPSの位置がありません'; $('#sfPos2').innerHTML = me ? `10進 ${me.lat.toFixed(5)}, ${me.lon.toFixed(5)}　${hm(new Date(me.t))} 受信（${Math.round(gpsAge())}秒前）・誤差±${Math.round(me.acc)}m${gpsFresh() ? '' : ' <b class="st-bad">GPS途絶中の最終位置</b>'}` : ''; } }, 2000);
+setInterval(() => { if (openBs && openBs.id === 'bsSafety'){ if (++sfTick % 30 === 0){ renderReturnWx(); renderPortWx(); } if (sfTick % 5 === 0) renderReady(); $('#sfPos').textContent = me ? fmtDM(me.lat, me.lon) : 'GPSの位置がありません'; $('#sfPos2').innerHTML = me ? `10進 ${me.lat.toFixed(5)}, ${me.lon.toFixed(5)}　${hm(new Date(me.t))} 受信（${Math.round(gpsAge())}秒前）・誤差±${Math.round(me.acc)}m${gpsFresh() ? '' : ` <b class="st-bad">${gpsState().text}</b>`}` : ''; } }, 2000);
 
 // ===== 設定 =====
 function renderHome(){
@@ -2419,7 +2436,7 @@ function startPick(title, cb, at){
 }
 function endPick(){ document.body.classList.remove('picking'); pickCb = null; layoutDock(); }
 $('#pickOk').onclick = () => { const c = map.getCenter(), cb = pickCb, back = pickBack; endPick(); cb && cb([c.lat, c.lng]); if (back && back !== 'map') showTab(back); };
-$('#pickMe').onclick = () => { if (!me) return toast('GPSの位置がありません'); if (!gpsFresh()) toast(`GPSの最後の受信は ${Math.round(gpsAge())}秒前です。今の位置とずれているかもしれません`, true, 6000); map.setView([me.lat, me.lon], Math.max(map.getZoom(), 15)); };
+$('#pickMe').onclick = () => { if (!me) return toast('GPSの位置がありません'); if (!gpsFresh()) toast(`${gpsState().text}です。今の位置とずれているかもしれません`, true, 6000); map.setView([me.lat, me.lon], Math.max(map.getZoom(), 15)); };
 $('#pickNo').onclick = () => { const back = pickBack; endPick(); if (back && back !== 'map') showTab(back); };
 $('#fAdd').onclick = () => startPick('ポイントを登録する場所を選ぶ', ll => openPoint(null, {type:'spot', lat:ll[0], lon:ll[1], posSrc:'地図で指定'}), me ? {lat:me.lat, lon:me.lon} : null);
 $('#sHomeName').onchange = e => { if (settings.home){ if (!applySettings({home:Object.assign({}, settings.home, {name: e.target.value.trim() || '母港'})}, '母港の名前を保存しました')) e.target.value = settings.home.name; renderHome(); } };
