@@ -120,7 +120,7 @@ body.night #navBox{background:rgba(10,0,0,.96)}
 #navArrow{flex:none;width:44px;height:44px}
 #timebar{background:rgba(16,44,69,.96);border:1px solid var(--line);border-radius:14px;padding:6px 12px;display:none;font-size:13px}
 #timebar input{width:100%;height:44px}
-#picker{position:fixed;z-index:950;left:50%;top:calc((var(--barH,96px) + 100vh - 60px)/2);transform:translate(-50%,-50%);pointer-events:none;display:none;filter:drop-shadow(0 0 2px #fff)}
+#picker{position:fixed;z-index:950;left:50%;top:calc((var(--barH,96px) + 100vh - 60px - env(safe-area-inset-bottom))/2);transform:translate(-50%,-50%);pointer-events:none;display:none;filter:drop-shadow(0 0 2px #fff)}
 #pickBar{position:fixed;left:8px;right:8px;z-index:1500;bottom:calc(68px + env(safe-area-inset-bottom));background:var(--panel);border:2px solid var(--accent);border-radius:14px;padding:10px 12px;display:none;box-shadow:0 2px 12px rgba(0,0,0,.5)}
 body.picking #picker,body.picking #pickBar{display:block}
 body.picking #mobPanel{display:none!important}
@@ -130,10 +130,11 @@ body.fabsMin .fabs .fab:not(#fFollow):not(#fMore),body.fabsAuto .fabs .fab:not(#
 #modePanel,#mobPanel{max-height:calc(100vh - var(--barH,96px) - 150px - env(safe-area-inset-bottom));overflow:auto}
 #mobPanel .mobBtns{position:sticky;bottom:-10px;background:#b00000;padding:6px 0 2px;display:grid;grid-template-columns:1fr 1fr;gap:6px}
 #mobPanel .mobBtns .btn{white-space:nowrap;gap:0}
+.flash{outline:3px solid var(--accent);outline-offset:2px;transition:outline-color .3s}
 #mobPanel details summary{min-height:44px;display:flex;align-items:center;font-weight:700;cursor:pointer}
 #mobPanel.tight .mobBtns{grid-template-columns:repeat(4,1fr);gap:4px}
 #mobPanel.tight .mobBtns .btn{padding:4px 2px;font-size:15px;min-height:48px}
-#mobPanel.tight .t,#mobPanel.tight #mobTip,#mobPanel.tight .relNote{display:none}
+#mobPanel.tight .t,#mobPanel.tight #mobTip{display:none}
 #mobPanel.tight #mobRel{font-size:16px}
 #mobPanel.tight details summary{min-height:44px;font-size:14px}
 body.mobTight #navBox{display:none!important}
@@ -1487,19 +1488,22 @@ async function fillCond(id){
       getJson(`https://marine-api.open-meteo.com/v1/marine?${q}&hourly=wave_height,sea_surface_temperature`).catch(() => ({data:{}, failed:true}))
     ]);
     const d = new Date(p.time), key = `${ymd(d)}T${pad(d.getHours())}:00`;
-    const i = w.data.hourly?.time.indexOf(key), j = m.data.hourly?.time?.indexOf(key) ?? -1;
-    if (i == null || i < 0) return;
+    const i = w.data.hourly?.time?.indexOf(key) ?? -1, j = m.data.hourly?.time?.indexOf(key) ?? -1;
+    if (i < 0 || w.data.hourly.wind_speed_10m?.[i] == null) return fillCondSaved(id); // 対象時刻・風が無い応答：保存予報で補い、取り直す
+    const waveOk = j >= 0 && m.data.hourly.wave_height?.[j] != null;
     // 取りに行った時と位置・日時が同じ記録にだけ付ける
     const q2 = points.find(x => x.id === id);
     if (!q2 || q2.lat !== p.lat || q2.lon !== p.lon || q2.time !== p.time) return;
     const H = w.data.hourly, M = m.data.hourly || {};
-    const c = Object.assign({}, q2, {cond: Object.assign({}, q2.cond || {}, {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], temp: H.temperature_2m[i], pres: H.pressure_msl[i],
-      wave: j >= 0 ? M.wave_height?.[j] : null, sst: j >= 0 ? M.sea_surface_temperature?.[j] : null, wxSrc:'モデル値',
-      wxCached: w.cached ? true : undefined, wxAt: w.cached ? w.at : undefined, wxFrom: undefined,
-      waveCached: m.cached ? true : undefined, waveAt: m.cached ? m.at : undefined, waveSrc: undefined, waveFrom: undefined,
-      wxPending: m.failed || w.cached || m.cached ? true : undefined})});
-    commitPoints(points.map(x => x.id === id ? c : x));
-    if (m.failed) fillCondSaved(id, true); // 波だけ取れなかった：保存予報で補えるなら補い、電波が戻ったら取り直す
+    const add = {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], wxSrc:'モデル値', wxCached: w.cached ? true : undefined, wxAt: w.cached ? w.at : undefined, wxFrom: undefined,
+      wxPending: !waveOk || w.cached || m.cached ? true : undefined};
+    if (H.temperature_2m?.[i] != null) add.temp = H.temperature_2m[i];
+    if (H.pressure_msl?.[i] != null) add.pres = H.pressure_msl[i];
+    // 波が取れたときだけ波の値と出所を入れ替える（取れなければ前の値を残し、保存予報で補う）
+    if (waveOk) Object.assign(add, {wave: M.wave_height[j], waveCached: m.cached ? true : undefined, waveAt: m.cached ? m.at : undefined, waveSrc: undefined, waveFrom: undefined},
+      M.sea_surface_temperature?.[j] != null ? {sst: M.sea_surface_temperature[j]} : {});
+    commitPoints(points.map(x => x.id === id ? Object.assign({}, q2, {cond: Object.assign({}, q2.cond || {}, add)}) : x));
+    if (!waveOk) fillCondSaved(id, true); // 波だけ取れなかった：保存予報で補えるなら補い、電波が戻ったら取り直す
   }catch(e){ fillCondSaved(id); }
 }
 // 保存してある予報（10km以内・同じ時刻）から風・波を付ける。付けられなければ「未取得」の印を残す
@@ -1515,9 +1519,11 @@ function fillCondSaved(id, waveOnly){
   const H = src.w.hourly, M = mhOf(src.w, src.m);
   const from = `${Math.round(src.d/100)/10}km先の予報地点`, sst = M.sea_surface_temperature?.[i];
   const add = waveOnly ? {wave: M.wave_height[i], waveSrc:'保存予報', waveAt: src.at, waveFrom: from, waveCached: undefined, wxPending:true}
-    : {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], wave: M.wave_height?.[i] ?? null, wxSrc:'モデル値（保存予報）', wxAt: src.at, wxFrom: from, wxCached: undefined, wxPending:true};
-  if (sst != null) add.sst = sst;
+    : {wind: H.wind_speed_10m[i], windDir: H.wind_direction_10m[i], wxSrc:'モデル値（保存予報）', wxAt: src.at, wxFrom: from, wxCached: undefined, wxPending:true};
+  if (!waveOnly && M.wave_height?.[i] != null) Object.assign(add, {wave: M.wave_height[i], waveSrc: undefined, waveAt: undefined, waveFrom: undefined, waveCached: undefined});
+  if (sst != null && (waveOnly || add.wave != null)) add.sst = sst;
   commitPoints(points.map(x => x.id === id ? Object.assign({}, x, {cond: Object.assign({}, x.cond || {}, add)}) : x));
+  if (!waveOnly && add.wave == null) fillCondSaved(id, true); // 風を付けた予報地点に波が無ければ、波のある別の地点から補う
 }
 // 電波が戻ったら、未取得・保存予報で付けた釣果の気象を取り直す（3日以内・最大20件）
 function refillPending(){ points.filter(p => p.cond?.wxPending && Date.now() - p.time < 3*86400000).slice(-20).forEach((p, k) => setTimeout(() => fillCond(p.id), k*1500)); }
@@ -1571,7 +1577,9 @@ $('#qcDetail').onclick = () => {
 let activeMob = store.get('activeMob', null); // {id, t, lat, lon, saved, stale}
 function renderMob(){
   const el = $('#mobPanel'); document.body.classList.toggle('mob', !!activeMob);
-  if (!activeMob){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  if (!activeMob){ el.style.display = 'none'; el.innerHTML = ''; el.classList.remove('tight');
+    if (document.body.classList.contains('mobTight')){ document.body.classList.remove('mobTight'); if (navTarget) setTimeout(() => requestAnimationFrame(fitNav), 80); }
+    return; }
   const m = activeMob;
   if (!$('#mobEnd')){
     el.innerHTML = `<div style="font-size:18px;font-weight:900" id="mobHead"></div>
@@ -1609,7 +1617,7 @@ function renderMob(){
   else if (!me || !gpsFresh()) setText('mobRel', `⚠ 現在位置が不明（GPS${me ? Math.round(gpsAge()) + '秒' : ''}途絶）。距離と方位は更新できません`);
   else { const h = [me.lat, me.lon], d = distM(h, [m.lat, m.lon]), b = bearing(h, [m.lat, m.lon]);
     const cg = cogNow(), rel = cg != null && (me.sog ?? 0)*1.94384 > 1.5 ? ((b - cg + 540) % 360) - 180 : null;
-    setText('mobRel', `<svg viewBox="0 0 44 44" width="30" height="30" style="vertical-align:middle;transform:rotate(${rel ?? b}deg)" aria-hidden="true"><path d="M22 3 L34 38 L22 30 L10 38 Z" fill="#fff"/></svg> 落水地点まで ${fmtDist(d)}・${Math.round(b)}° ${dir16(b)}<span class="relNote" style="font-size:13px;font-weight:700">（矢印は${rel != null ? '進路基準' : '北が上'}）</span>${me.acc > 20 ? `（GPS誤差±${Math.round(me.acc)}m）` : ''}`); }
+    setText('mobRel', `<svg viewBox="0 0 44 44" width="30" height="30" style="vertical-align:middle;transform:rotate(${rel ?? b}deg)" aria-hidden="true"><path d="M22 3 L34 38 L22 30 L10 38 Z" fill="#fff"/></svg> 落水地点まで ${fmtDist(d)}・${Math.round(b)}° ${dir16(b)}<span style="font-size:13px;font-weight:700">（<span class="t">矢印は</span>${rel != null ? '進路基準' : '北が上'}）</span>${me.acc > 20 ? `（GPS誤差±${Math.round(me.acc)}m）` : ''}`); }
   $('#mobGo').style.display = m.lat == null ? 'none' : '';
   $('#mobPick').style.display = ''; // 誤差が大きい・古い位置のときに直せるよう、対応中はいつも出す
   // 地図の見える範囲が狭いとき（低い画面・横向き）は、パネルを1列に縮める
@@ -2228,7 +2236,7 @@ function tripList(){
 function renderTrips(){
   const ts = tripList().slice(0, 20);
   $('#lTrips').innerHTML = ts.length ? ts.map(t => { const a = new Date(t.a), b = new Date(t.b);
-    return `<div class="item"><div class="t"><b>${a.getMonth()+1}/${a.getDate()}(${WD[a.getDay()]}) ${hm(a)}〜${ymd(a) === ymd(b) ? '' : `${b.getMonth()+1}/${b.getDate()} `}${hm(b)}　${shioName(a)}</b><span>${t.n ? `釣果 ${t.n}匹` : '釣果なし'}・流し ${t.drifts}回・実釣 ${t.fishMin >= 1 ? fmtDur(t.fishMin) + '（記録で確認）' : '記録なし'}${t.prov ? '<b class="st-warn">・進行中（暫定）</b>' : ''}・出船 ${fmtDur((t.b - t.a)/60000)}${t.dist ? '・航走 ' + fmtDist(t.dist) : ''}${t.fishMin >= 30 ? `・記録した実釣時間内 ${t.nIn}匹（1時間あたり ${(t.nIn/(t.fishMin/60)).toFixed(1)}匹）` : ''}</span></div></div>`; }).join('')
+    return `<div class="item"><div class="t"><b>${a.getMonth()+1}/${a.getDate()}(${WD[a.getDay()]}) ${hm(a)}〜${ymd(a) === ymd(b) ? '' : `${b.getMonth()+1}/${b.getDate()} `}${hm(b)}　${shioName(a)}</b><span>${t.n ? `釣果 ${t.n}匹` : '釣果なし'}・流し ${t.drifts}回・実釣 ${t.fishMin >= 1 ? fmtDur(t.fishMin) + '（流しは測位できた時間・かかりは錨泊の経過時間）' : '記録なし'}${t.prov ? '<b class="st-warn">・進行中（暫定）</b>' : ''}・出船 ${fmtDur((t.b - t.a)/60000)}${t.dist ? '・航走 ' + fmtDist(t.dist) : ''}${t.fishMin >= 30 ? `・記録した実釣時間内 ${t.nIn}匹（1時間あたり ${(t.nIn/(t.fishMin/60)).toFixed(1)}匹）` : ''}</span></div></div>`; }).join('')
     : '<p class="note" style="padding:8px">GPSで航跡が残ると、釣れなかった日も釣行としてここにまとまります（8時間あくか「ここから新しい釣行」で区切り）。</p>';
 }
 // 釣行の区切り（記録は8時間あくと自動で区切る。続けて別の釣行に出たときなどに手で区切る）
@@ -2288,7 +2296,7 @@ function renderTrend(fs){
     return `<div class="bars"><div class="note" style="margin-top:8px;font-weight:700">${title}</div>${arr.slice(0, 5).map(([k, v]) => `<div class="b"><span>${esc(k)}</span><i style="width:${Math.max(4, v/mx*100)*0.45}%"></i><em>${v}匹${hrs[k] >= 0.5 ? `<span class="note">（記録した${hrs[k].toFixed(1)}時間に${cIn[k] || 0}匹＝${((cIn[k] || 0)/hrs[k]).toFixed(1)}匹/時）</span>` : ''}</em></div>`).join('')}</div>`;
   };
   const flow = (t) => { const s = tideStage(new Date(t)); return s ? (s.key === 'slack' ? '満干潮の前後' : s.dir) : null; };
-  $('#lTrend').innerHTML = `<div class="note">${fs ? esc(fs) : '全魚種'}・${cs.length}件の記録の内訳。（ ）は「流し」「かかり」で記録した時間（GPSが途切れた時間は除く）と、その間の釣果だけで数えた1時間あたりの匹数です。</div>` +
+  $('#lTrend').innerHTML = `<div class="note">${fs ? esc(fs) : '全魚種'}・${cs.length}件の記録の内訳。（ ）は記録した釣りの時間（流しはGPSで測位できた時間、かかりは錨を打ってから上げるまでの経過時間）と、その間の釣果だけで数えた1時間あたりの匹数です。</div>` +
     block('室蘭の潮位の上げ・下げ', flow) + block('潮のどのあたり', t => tideStage(new Date(t))?.label) + block('時間帯', (t, la, lo) => timeBand(new Date(t), la, lo)) + block('潮名', t => shioName(new Date(t))) +
     `<p class="note">出船した時間帯にかたよりがあると、そのまま数にも出ます（夜しか出ていなければ夜が多くなる）。潮は室蘭の潮位からの推定で、実際の潮の流れ（潮流）とは別です。</p>`;
 }
@@ -2511,18 +2519,24 @@ function renderReady(){
   const st = store.get('pfStat', null);
   const items = [
     [swState === 'ok', {ok:'アプリ本体：圏外でも起動できるよう保存済み', wait:'アプリ本体：圏外用の保存を準備中（一度ページを開き直すと完了します）', fail:'アプリ本体：圏外用の保存に失敗（電波のある所で「やり直す」）', none:'アプリ本体：この開き方では圏外起動の保存ができません'}[swState], swState === 'fail' || swState === 'wait' ? 'sw' : null],
-    [!!settings.home, settings.home ? `母港：${settings.home.name}` : '母港が未登録', 'set'],
-    [!!settings.gate, settings.gate ? '港口：登録済み' : '港口が未登録（帰港は母港へ直線）', 'set'],
-    [!!st && st.ok === st.total, !st ? '圏外用の地図を保存していません' : st.ok === st.total ? `圏外用の地図：保存済み（${fmtDT(st.at)} 確認）` : `圏外用の地図：一部だけ（${st.ok}/${st.total}枚）`, 'set'],
+    [!!settings.home, settings.home ? `母港：${settings.home.name}` : '母港が未登録', 'sHomeNow'],
+    [!!settings.gate, settings.gate ? '港口：登録済み' : '港口が未登録（帰港は母港へ直線）', 'sGateNow'],
+    [!!st && st.ok === st.total, !st ? '圏外用の地図を保存していません' : st.ok === st.total ? `圏外用の地図：保存済み（${fmtDT(st.at)} 確認）` : `圏外用の地図：一部だけ（${st.ok}/${st.total}枚）`, 'pfStart'],
     [gpsFresh() && me.acc < 30, !me ? 'GPS：まだ受信していません' : gpsState().text, null],
     [!settings.sound || audioReady(), !settings.sound ? '警報音：鳴らさない設定（振動のみ）' : audioReady() ? '警報音：準備済み' : '警報音：まだ有効になっていません（画面をタップ）', null],
-    [wakeState === 'on', wakeText().replace(/<[^>]+>/g, ''), 'set']
+    [wakeState === 'on', wakeText().replace(/<[^>]+>/g, ''), 'sWake']
   ];
   items.sort((a, b) => !!a[0] - !!b[0]); // 未設定・失敗を先に
   const ng = items.filter(x => !x[0]).length; $('#sfReadyN').textContent = ng ? `要確認 ${ng}件` : 'すべて準備済み';
-  $('#sfReady').innerHTML = items.map(([ok, t, go]) => `<div class="check" style="justify-content:space-between"><span><b class="${ok ? 'g' : 'y'}">${ok ? '✓' : '！'}</b> ${esc(t)}</span>${!ok && go === 'sw' ? `<button class="btn sm" data-sw-retry>やり直す</button>` : !ok && go ? `<button class="btn sm" data-go-set>設定</button>` : ''}</div>`).join('');
-  $('#sfReady').querySelectorAll('[data-go-set]').forEach(b => b.onclick = () => showTab('set'));
+  $('#sfReady').innerHTML = items.map(([ok, t, go]) => `<div class="check" style="justify-content:space-between"><span><b class="${ok ? 'g' : 'y'}">${ok ? '✓' : '！'}</b> ${esc(t)}</span>${!ok && go === 'sw' ? `<button class="btn sm" data-sw-retry>やり直す</button>` : !ok && go ? `<button class="btn sm" data-go-set="${go}">設定へ</button>` : ''}</div>`).join('');
+  $('#sfReady').querySelectorAll('[data-go-set]').forEach(b => b.onclick = () => goSetting(b.dataset.goSet));
   $('#sfReady').querySelectorAll('[data-sw-retry]').forEach(b => b.onclick = () => { b.disabled = true; b.textContent = '保存中…'; registerSw().then(renderReady); });
+}
+// 設定タブを開き、その項目の欄まで移動して枠を光らせる
+function goSetting(id){
+  hideBs(); showTab('set');
+  setTimeout(() => { const el = $('#' + id); if (!el) return; const box = el.closest('.card') || el; el.scrollIntoView({block:'center', behavior:'smooth'});
+    box.classList.add('flash'); setTimeout(() => box.classList.remove('flash'), 2500); }, 120);
 }
 function renderSafety(){
   renderReady();
@@ -2652,7 +2666,12 @@ function startPick(title, cb, at){
   $('#pickMe').textContent = hereLabel();
 }
 function endPick(){ document.body.classList.remove('picking'); pickCb = null; layoutDock(); }
-$('#pickOk').onclick = () => { const c = map.getCenter(), cb = pickCb, back = pickBack; endPick(); cb && cb([c.lat, c.lng]); if (back && back !== 'map') showTab(back); };
+// 十字の中心（画面上の位置）にあたる地点。十字が見えないときは地図の中央
+function pickLL(){
+  const r = $('#picker').getBoundingClientRect(), mr = $('#map').getBoundingClientRect();
+  return r.width ? map.containerPointToLatLng([r.left + r.width/2 - mr.left, r.top + r.height/2 - mr.top]) : map.getCenter();
+}
+$('#pickOk').onclick = () => { const c = pickLL(), cb = pickCb, back = pickBack; endPick(); cb && cb([c.lat, c.lng]); if (back && back !== 'map') showTab(back); };
 $('#pickMe').onclick = () => { if (!me) return toast('GPSの位置がありません'); if (!gpsFresh()) toast(`${gpsState().text}です。今の位置とずれているかもしれません`, true, 6000); map.setView([me.lat, me.lon], closeZ()); };
 $('#pickNo').onclick = () => { const back = pickBack; endPick(); if (back && back !== 'map') showTab(back); };
 $('#fAdd').onclick = () => startPick('ポイントを登録する場所を選ぶ', ll => openPoint(null, {type:'spot', lat:ll[0], lon:ll[1], posSrc:'地図で指定'}), me ? {lat:me.lat, lon:me.lon} : null);
