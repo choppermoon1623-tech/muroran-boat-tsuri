@@ -1,5 +1,5 @@
 // 室蘭ボート釣りナビ：圏外でも使えるようにキャッシュする
-const APP = 'mbt-app-v26', TILES = 'mbt-tiles', API = 'mbt-api';
+const APP = 'mbt-app-v27', TILES = 'mbt-tiles', API = 'mbt-api';
 const SHELL = ['./', 'index.html', 'tide-data.js', 'manifest.webmanifest', 'icon.svg',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'];
@@ -28,7 +28,7 @@ self.addEventListener('fetch', e => {
     // 地図タイル：保存済みを先に使う
     e.respondWith(caches.open(TILES).then(async c => {
       const hit = await c.match(e.request); if (hit) return hit;
-      const r = await fetch(e.request);
+      const r = await timed(fetch(e.request), 8000); // 弱い電波で待ち続けない（失敗にして、アプリ側で保存地図へ戻せるようにする）
       // 保存が終わるまで Worker を止めない
       if (r.ok || r.type === 'opaque') e.waitUntil(c.put(e.request, r.clone()).then(() => Math.random() < .02 ? trim(c) : null).catch(() => {}));
       return r;

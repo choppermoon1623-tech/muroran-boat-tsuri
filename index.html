@@ -773,7 +773,7 @@ function setBase(id){
   if (curBase) map.removeLayer(curBase);
   curBase = b[3].addTo(map); curBase.bringToBack();
   if (!curBase._failHook){ curBase._failHook = true; curBase.on('tileerror', () => { tileFails.push(Date.now()); tileFails = tileFails.slice(-10);
-    if (tileFails.filter(t => Date.now() - t < 60000).length === 4 && map.getZoom() > OFF_MAXZ) toast('地図を取得できません（電波が弱い・圏外など）', true, 0, [['保存した淡色地図へ戻る', goSavedMap], ['このまま', () => {}]]); }); }
+    if (tileFails.filter(t => Date.now() - t < 60000).length === 4 && (map.getZoom() > OFF_MAXZ || store.get('base', 'pale') !== 'pale')) toast('地図を取得できません（電波が弱い・圏外など）', true, 0, [['保存した淡色地図へ戻る', goSavedMap], ['このまま', () => {}]]); }); }
   store.set('base', b[0]); renderLayerSheet();
 }
 
@@ -1382,16 +1382,17 @@ function condText(c){
   if (c.tide != null) a.push(`潮位 ${c.tide}cm ${c.tideUp ? '上げ' : '下げ'}`);
   if (c.stage) a.push(c.stage);
   if (c.shio) a.push(c.shio);
-  if (c.wind != null) a.push(`風 ${dir16(c.windDir)} ${c.wind.toFixed(1)}m/s`);
+  if (c.wind != null) a.push(`風 ${c.windDir != null ? dir16(c.windDir) : '風向不明'} ${c.wind.toFixed(1)}m/s`);
   if (c.wave != null) a.push(`波 ${c.wave.toFixed(1)}m`);
   if (c.sst != null) a.push(`海面水温（モデル） ${c.sst.toFixed(1)}℃`);
   if (c.temp != null) a.push(`気温 ${c.temp.toFixed(0)}℃`);
   if (c.pres != null) a.push(`気圧 ${Math.round(c.pres)}hPa`);
   if (c.drift != null) a.push(`流し ${c.drift.toFixed(1)}kn`);
-  if (c.wind == null && c.tide != null) a.push('風・波は未取得（圏外か3日より前）');
-  else if (c.wind != null && c.wxSrc && (c.wave == null || c.sst == null) && !c.wxPending) a.push(`${[c.wave == null ? '波' : '', c.sst == null ? '海面水温' : ''].filter(Boolean).join('・')}：予報モデルに値なし`);
+  const lack = [c.wind == null ? '風' : '', c.wave == null ? '波' : '', c.sst == null ? '海面水温' : ''].filter(Boolean);
+  if (lack.length === 3 && c.tide != null) a.push(c.wxPending ? '風・波・海面水温は未取得（電波が戻ったら取得）' : '風・波は未取得（圏外か3日より前）');
+  else if (lack.length && lack.length < 3) a.push(`${lack.join('・')}：${c.wxPending ? '未取得（取り直し待ち）' : '予報モデルに値なし'}`);
   const at = (t, f) => t ? `（${fmtDT(t)} 取得${f ? '・' + f : ''}）` : '';
-  const src = [c.wxSrc === 'モデル値（保存予報）' ? `風・波は保存予報から補った値${at(c.wxAt, c.wxFrom)}` : c.wxCached ? `風は端末に保存してあった取得結果${at(c.wxAt)}` : '',
+  const src = [c.wxSrc === 'モデル値（保存予報）' ? `風${c.wave != null && !c.waveSrc && !c.waveCached && c.waveAt == null ? '・波' : ''}は保存予報から補った値${at(c.wxAt, c.wxFrom)}` : c.wxCached ? `風は端末に保存してあった取得結果${at(c.wxAt)}` : '',
     c.waveSrc === '保存予報' ? `波は保存予報から補った値${at(c.waveAt ?? c.wxAt, c.waveFrom ?? c.wxFrom)}` : c.waveCached ? `波は端末に保存してあった取得結果${at(c.waveAt)}` : '',
     c.sstSrc === '保存予報' ? `海面水温は保存予報から補った値${at(c.sstAt, c.sstFrom)}` : c.sstCached ? `海面水温は端末に保存してあった取得結果${at(c.sstAt)}` : '',
     c.wxPending ? '電波が戻ったら取り直します' : ''].filter(Boolean).join('\n');
@@ -1966,7 +1967,7 @@ function updateBarWx(){
   const i = grid.w[k].hourly.time.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`);
   if (i < 0 || Date.now() - gridAt > 12*3600000){ $('#vWind').textContent = '予報が古い'; $('#vWave').textContent = '--'; return; }
   const h = grid.w[k].hourly, wh = mhOf(grid.w[k], grid.m[k]).wave_height?.[i], old = Date.now() - gridAt > 6*3600000 ? '<small class="st-warn">古</small>' : '';
-  $('#vWind').innerHTML = h.wind_speed_10m[i] == null ? '欠測' : `<span class="${windLevel(h, i)}">${dir16(h.wind_direction_10m[i])} ${h.wind_speed_10m[i].toFixed(0)}m/s</span><small>・瞬${h.wind_gusts_10m[i]?.toFixed(0) ?? '-'}</small>${old}`;
+  $('#vWind').innerHTML = h.wind_speed_10m[i] == null ? '欠測' : `<span class="${windLevel(h, i)}">${h.wind_direction_10m[i] != null ? dir16(h.wind_direction_10m[i]) : '風向?'} ${h.wind_speed_10m[i].toFixed(0)}m/s</span><small>・瞬${h.wind_gusts_10m[i]?.toFixed(0) ?? '-'}</small>${old}`;
   $('#vWave').innerHTML = wh == null ? '--' : `<span class="${levelCls(wh, settings.waveG, settings.waveY)}">${wh.toFixed(1)}m</span>${old}`;
 }
 const WMO = {0:['☀','🌙'],1:['🌤','🌙'],2:['⛅','☁'],3:['☁','☁'],45:['🌫'],48:['🌫'],51:['🌦'],53:['🌦'],55:['🌦'],61:['🌧'],63:['🌧'],65:['🌧'],66:['🌧'],67:['🌧'],71:['🌨'],73:['🌨'],75:['🌨'],77:['🌨'],80:['🌦'],81:['🌦'],82:['⛈'],85:['🌨'],86:['🌨'],95:['⛈'],96:['⛈'],99:['⛈']};
@@ -2207,7 +2208,7 @@ function refreshLists(){
   // バックアップの催促
   const lb = settings.lastBackup || 0, need = points.length >= 5 && Date.now() - lb > 14*86400000;
   const unsv = unsavedLog.length ? `<div class="card warnCard row" style="flex-wrap:nowrap;padding:8px 10px"><div class="note" style="flex:1;color:var(--text)">⚠ 履歴未保存 ${unsavedLog.length}件（端末の空き不足）</div><button class="btn sm" id="lUnsvRetry">再保存</button><button class="btn sm" id="lUnsvExp">書き出す</button></div>` : '';
-  $('#lBackupWarn').innerHTML = unsv + (need ? `<div class="card warnCard row" style="flex-wrap:nowrap;padding:8px 10px"><div class="note" style="flex:1;color:var(--text)">💾 ${lb ? `前回の書き出し ${fmtDT(lb)}` : 'まだ書き出していません'}</div><button class="btn sm" id="lBackupNow">書き出す</button></div>` : '');
+  $('#lBackupWarn').innerHTML = unsv + (need ? `<div class="card warnCard row" style="flex-wrap:nowrap;padding:8px 10px"><div class="note" style="flex:1;color:var(--text)">💾 ${lb ? `保存を確かめたバックアップ ${fmtDT(lb)}` : '保存を確かめたバックアップがありません'}${settings.lastExport > lb ? `（書き出し操作 ${fmtDT(settings.lastExport)}・保存は未確認）` : ''}</div><button class="btn sm" id="lBackupNow">書き出す</button></div>` : '');
   if ($('#lBackupNow')) $('#lBackupNow').onclick = exportJson;
   if ($('#lUnsvRetry')) $('#lUnsvRetry').onclick = () => { retryUnsaved(); toast(unsavedLog.length ? `まだ ${unsavedLog.length}件を保存できません。書き出して古い航跡を消してください` : '保存し直しました', !!unsavedLog.length); refreshLists(); };
   if ($('#lUnsvExp')) $('#lUnsvExp').onclick = exportJson;
@@ -2316,16 +2317,18 @@ function renderTrend(fs){
     const i = x.pts.findIndex(q => q[2] >= p.time);
     return i <= 0 || x.pts[i][3] !== 1;
   });
-  const block = (title, f) => {
+  const block = (title, f, order) => {
     const c = {}, cIn = {}; cs.forEach(p => { const k = f(p.time, p.lat, p.lon); if (!k) return; c[k] = (c[k] || 0) + (p.count || 1); if (inSess(p)) cIn[k] = (cIn[k] || 0) + (p.count || 1); });
     const hrs = effort(f);
     Object.keys(hrs).forEach(k => { if (hrs[k] >= 0.5 && !(k in c)) c[k] = 0; }); // 釣りをしたが釣れなかった区分も残す
-    const arr = Object.entries(c).sort((a, b) => b[1] - a[1] || (hrs[b[0]] || 0) - (hrs[a[0]] || 0)), mx = Math.max(1, ...arr.map(x => x[1]));
-    return `<div class="bars"><div class="note" style="margin-top:8px;font-weight:700">${title}</div>${arr.slice(0, 6).map(([k, v]) => `<div class="b"><span>${esc(k)}</span><i style="width:${v ? Math.max(4, v/mx*100)*0.45 : 0}%"></i><em>${v}匹${hrs[k] >= 0.5 ? `<span class="note">（記録した${hrs[k].toFixed(1)}時間に${cIn[k] || 0}匹＝${((cIn[k] || 0)/hrs[k]).toFixed(1)}匹/時）</span>` : ''}</em></div>`).join('')}</div>`;
+    const pos = k => order ? (order.indexOf(k) + 1 || 99) : 0;
+    const arr = Object.entries(c).sort((a, b) => pos(a[0]) - pos(b[0]) || b[1] - a[1] || (hrs[b[0]] || 0) - (hrs[a[0]] || 0)), mx = Math.max(1, ...arr.map(x => x[1]));
+    return `<div class="bars"><div class="note" style="margin-top:8px;font-weight:700">${title}</div>${arr.map(([k, v]) => `<div class="b"><span>${esc(k)}</span><i style="width:${v ? Math.max(4, v/mx*100)*0.45 : 0}%"></i><em>${v}匹${hrs[k] >= 0.5 ? `<span class="note">（記録した${hrs[k].toFixed(1)}時間に${cIn[k] || 0}匹＝${((cIn[k] || 0)/hrs[k]).toFixed(1)}匹/時）</span>` : ''}</em></div>`).join('')}</div>`;
   };
   const flow = (t) => { const s = tideStage(new Date(t)); return s ? (s.key === 'slack' ? '満干潮の前後' : s.dir) : null; };
   $('#lTrend').innerHTML = `<div class="note">${fs ? esc(fs) : '全魚種'}・${cs.length}件の記録の内訳。（ ）は記録した釣りの時間（流しはGPSで測位できた時間、かかりは錨を打ってから上げるまでの経過時間）と、その間の釣果だけで数えた1時間あたりの匹数です。</div>` +
-    block('室蘭の潮位の上げ・下げ', flow) + block('潮のどのあたり', t => tideStage(new Date(t))?.label) + block('時間帯', (t, la, lo) => timeBand(new Date(t), la, lo)) + block('潮名', t => shioName(new Date(t))) +
+    block('室蘭の潮位の上げ・下げ', flow, ['上げ', '満干潮の前後', '下げ']) + block('潮のどのあたり', t => tideStage(new Date(t))?.label, ['上げはじめ', '上げ中盤', '上げ終盤', '満干潮の前後', '下げはじめ', '下げ中盤', '下げ終盤']) +
+    block('時間帯', (t, la, lo) => timeBand(new Date(t), la, lo), ['朝まずめ', '日中', '夕まずめ', '夜']) + block('潮名', t => shioName(new Date(t)), ['大潮', '中潮', '小潮', '長潮', '若潮']) +
     `<p class="note">出船した時間帯にかたよりがあると、そのまま数にも出ます（夜しか出ていなければ夜が多くなる）。潮は室蘭の潮位からの推定で、実際の潮の流れ（潮流）とは別です。</p>`;
 }
 ['#lType','#lSpecies','#lSort'].forEach(s => $(s).onchange = refreshLists);
@@ -2361,8 +2364,11 @@ const gpxTrack = tr => `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.
 $('#exGpx').onclick = () => download(`地点_${ymd(new Date())}.gpx`, gpxPoints(), 'application/gpx+xml');
 function exportJson(){
   const s = Object.assign({}, settings); delete s.msilKey;
-  download(`ボート釣り記録_${ymd(new Date())}.json`, JSON.stringify({app:'muroran-boat-tsuri', v:4, exportedAt:new Date().toISOString(), points, tracks, recActive: rec && rec.pts.length > 1 ? rec : null, driftLog: store.get('driftLog', []).concat(unsavedLog), active:{drift, anchor, mode}, settings:s}, null, 1), 'application/json');
-  settings.lastBackup = Date.now(); saveSettings(); refreshLists();
+  const name = `ボート釣り記録_${ymd(new Date())}.json`;
+  download(name, JSON.stringify({app:'muroran-boat-tsuri', v:4, exportedAt:new Date().toISOString(), points, tracks, recActive: rec && rec.pts.length > 1 ? rec : null, driftLog: store.get('driftLog', []).concat(unsavedLog), active:{drift, anchor, mode}, settings:s}, null, 1), 'application/json');
+  settings.lastExport = Date.now(); saveSettings(); refreshLists();
+  toast(`「${name}」を書き出しました。端末の「ダウンロード」やファイルに保存されたか確認してください`, false, 0,
+    [['保存できた', () => { settings.lastBackup = settings.lastExport; saveSettings(); refreshLists(); toast('バックアップを記録しました'); }], ['あとで確認', () => {}]]);
 }
 $('#exJson').onclick = exportJson;
 // 取り込むデータは1件ずつ形と値の範囲を確かめ、おかしいものは取り込まない
