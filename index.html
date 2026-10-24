@@ -456,7 +456,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
     <div class="note" id="sfWxPort" style="margin-top:6px"></div>
     <label class="f">行き先・メモ</label><input id="sfMemo" placeholder="例：地球岬沖でソイ">
     <div class="row" style="margin-top:10px;flex-wrap:nowrap"><button class="btn pri" id="sfDepart" style="flex:1.4">📤 出港の連絡</button><button class="btn" id="sfArrive" style="flex:1">⚓ 帰港の連絡</button></div>
-    <p class="note">LINEやメールなどの共有先を選べます。送る文には「帰港予定を1時間過ぎても連絡がなければ118番へ」と入ります。帰ったら「帰港の連絡」を。</p>
+    <p class="note">LINEやメールなどの共有先を選べます。送る文には「帰港予定を過ぎても連絡が取れない場合は118番へ相談を」と入ります。帰ったら「帰港の連絡」を。</p>
   </div>
   <div class="card">
     <h3 style="margin-top:0">アプリの準備（自動で確認）</h3>
@@ -920,6 +920,8 @@ function drawPoints(){
 // 新しい一覧を端末に保存できたときだけ画面にも反映する（失敗したら何も変えない）
 function commitPoints(next){
   if (!store.set('points', next)) return false; points = next; drawPoints();
+  if (activeMob?.id){ const m = points.find(x => x.id === activeMob.id);
+    if (m && (m.lat !== activeMob.lat || m.lon !== activeMob.lon)){ activeMob = Object.assign(activeMob, {lat:m.lat, lon:m.lon, manual:true, stale:0, acc:undefined}); store.set('activeMob', activeMob); renderMob(); } }
   // 案内中の地点が直されていたら、案内先も合わせる（母港・港口・MOBの専用案内は対象外）
   if (navTarget?.id && !navTarget.home){ const p = points.find(x => x.id === navTarget.id);
     if (p && (p.lat !== navTarget.lat || p.lon !== navTarget.lon || (p.type !== 'mob' && pointTitle(p) !== navTarget.name))) setNav(Object.assign({}, p, {name: p.type === 'mob' ? navTarget.name : pointTitle(p)})); }
@@ -1172,9 +1174,9 @@ function driftVel(){
   if (!gpsFresh()) return {unsure:true, err};
   if (d < err){
     // 誤差の範囲内しか動いていない：長く見ても動かないなら「ほぼ止まり」、そうでなければ計測中
-    return dt >= 45 && err <= 20 ? {kn: 0, dir: null, still: true} : {unsure:true, err};
+    return dt >= 45 && err <= 20 ? {kn: 0, dir: null, still: true, sec: dt} : {unsure:true, err};
   }
-  return {kn: d/dt*1.94384, dir: bearing(first.ll, last.ll), still: d < 5};
+  return {kn: d/dt*1.94384, dir: bearing(first.ll, last.ll), still: d < 5, sec: dt};
 }
 // 部品は状態が変わったときだけ作り直し、ふだんは数字だけ書き換える（押している最中に消えないように）
 function panel(key, html, bind){
@@ -1223,7 +1225,7 @@ function updateMode(){
     // この流しの釣果に印
     points.filter(x => x.type === 'catch' && x.cond?.driftId && (x.cond.driftId === drift?.id || todayDrifts().a.some(h => h.id === x.cond.driftId))).forEach(x => L.circleMarker([x.lat, x.lon], {radius:9, color:'#ff8a3d', weight:3, fill:false, interactive:false}).addTo(modeLayer));
     panel('drift', `<div class="mpGrid">
-      <div><div class="k">流される速さ<br><span style="font-size:12px">直近1分の平均</span></div><div class="v" id="mdSp">--</div></div>
+      <div><div class="k">流される速さ<br><span style="font-size:12px" id="mdSpK">直近1分の平均</span></div><div class="v" id="mdSp">--</div></div>
       <div><div class="k">流れる向き</div><div class="v" style="font-size:18px" id="mdDir">--</div></div>
       <div><div class="k">流し始めから</div><div class="v" style="font-size:18px" id="mdDist">--</div></div></div>
       <div class="row" style="margin-top:6px;flex-wrap:nowrap"><button class="btn sm" id="mdBack" style="flex:1">↺ 終えて始点へ戻る</button><button class="btn sm pri" id="mdRestart" style="flex:1">▶ ここから流し直す</button></div>
@@ -1239,6 +1241,7 @@ function updateMode(){
       $('#mdRestart').onclick = () => startDrift();
     });
     const ok = gpsFresh();
+    setText('mdSpK', v?.sec ? (v.sec >= 55 ? '直近1分の平均' : `直近${Math.round(v.sec)}秒の平均`) : '計測中');
     setText('mdSp', v?.unsure ? (v.err > 20 ? '<span style="font-size:15px" class="st-warn">GPS精度不足</span>' : '<span style="font-size:15px">計測中</span>') : `${v && ok ? v.kn.toFixed(1) : '--'}<small>kn</small>`);
     setText('mdDir', !ok ? `<span class="st-bad" style="font-size:15px">${{none:'GPS未受信', stale:'GPS途絶', jump:'位置確認中', rough:'精度不足'}[gpsState().k] || 'GPS不良'}</span>` : v?.unsure ? '<span style="font-size:15px">計測中</span>' : v && !v.still ? `<span class="arrow" style="transform:rotate(${v.dir}deg)">↑</span>${dir16(v.dir)}` : (v ? 'ほぼ止まり' : '計測中'));
     setText('mdDist', drift && me ? fmtDist(distM(drift.start, [me.lat, me.lon])) : '--');
@@ -1267,8 +1270,9 @@ function updateMode(){
     <div><div class="k">警報の距離</div><div class="v">${anchor.r}<small>m</small></div></div>
     <div><div class="k">錨を打って</div><div class="v" style="font-size:18px" id="mdT">--</div></div></div>
     ${anchorAlarm ? `<div class="row" style="margin-top:6px;flex-wrap:nowrap">${!alarmMuted ? '<button class="btn warnb" id="mdMute" style="flex:1">🔇 消音</button>' : ''}<button class="btn sm" id="mdSafety" style="flex:1">🆘 安全・118番</button></div>` : ''}
-    <div class="row" style="margin-top:6px;flex-wrap:nowrap"><button class="btn sm" id="mdUp" style="flex:1">錨を上げた（見張り終了）</button></div>
-    <details style="margin-top:4px"><summary style="min-height:44px;display:flex;align-items:center;font-size:14px">見張りの基準を変える（錨の位置・警報距離）</summary>
+    ${anchorAlarm ? '' : '<div class="row" style="margin-top:6px;flex-wrap:nowrap"><button class="btn sm" id="mdUp" style="flex:1">錨を上げた（見張り終了）</button></div>'}
+    <details style="margin-top:4px"><summary style="min-height:44px;display:flex;align-items:center;font-size:14px">${anchorAlarm ? 'その他の操作（錨を上げた・基準の変更）' : '見張りの基準を変える（錨の位置・警報距離）'}</summary>
+    ${anchorAlarm ? '<div class="row" style="margin-top:4px;flex-wrap:nowrap"><button class="btn sm" id="mdUp" style="flex:1">錨を上げた（見張り終了）</button></div>' : ''}
     <div class="row" style="margin-top:4px;flex-wrap:nowrap"><button class="btn sm" id="mdReset" style="flex:1">錨の位置を今の船の位置に変更</button></div>
     <div class="row" id="mdRBox" style="margin-top:6px;flex-wrap:nowrap"><button class="btn sm" id="mdChgR" style="flex:1">警報距離を変更（今 ${anchor.r}m）</button></div></details>
     <div class="note" style="font-size:14px;margin-top:4px" id="mdNote"></div>
@@ -2118,11 +2122,14 @@ function tripList(){
   const addTrack = pts => splitPts(pts).forEach(seg => ev.push({a:seg[0][2], b:seg[seg.length-1][2], dist:seg.length > 1 ? trackDist(seg) : 0}));
   tracks.forEach(t => addTrack(t.pts));
   if (rec && rec.pts.length > 1) addTrack(rec.pts);
-  // 流し・錨泊も区切りで分ける。回数は始まった方の釣行だけで数える
-  store.get('driftLog', []).forEach(x => {
-    if (x.pts?.length > 1){ splitPts(x.pts).forEach((seg, i) => { const iv = []; seg.forEach((p, k) => { if (k && p[3] !== 1) iv.push([seg[k-1][2], p[2]]); }); ev.push({a:seg[0][2], b:seg[seg.length-1][2], kind:x.kind, first:i === 0, iv, min:sessMin({start:seg[0][2], end:seg[seg.length-1][2], pts:seg})}); }); return; }
+  // 流し・錨泊も区切りで分ける。回数は始まった方の釣行だけで数える。進行中のものは暫定として加える
+  const live = [];
+  if (drift?.pts?.length > 1) live.push({kind:'drift', id:drift.id, start:drift.t, end:drift.pts[drift.pts.length-1][2], pts:drift.pts, prov:true});
+  if (anchor) live.push({kind:'anchor', id:anchor.id, start:anchor.t, end:Date.now(), ll:anchor.ll, prov:true});
+  store.get('driftLog', []).concat(live).forEach(x => {
+    if (x.pts?.length > 1){ splitPts(x.pts).forEach((seg, i) => { const iv = []; seg.forEach((p, k) => { if (k && p[3] !== 1) iv.push([seg[k-1][2], p[2]]); }); ev.push({a:seg[0][2], b:seg[seg.length-1][2], kind:x.kind, first:i === 0, iv, prov:x.prov, min:sessMin({start:seg[0][2], end:seg[seg.length-1][2], pts:seg})}); }); return; }
     const cuts = [x.start, ...brk0.filter(k => x.start < k && k < x.end), x.end];
-    for (let i = 1; i < cuts.length; i++) ev.push({a:cuts[i-1], b:cuts[i], kind:x.kind, first:i === 1, iv:[[cuts[i-1], cuts[i]]], min:(cuts[i] - cuts[i-1])/60000});
+    for (let i = 1; i < cuts.length; i++) ev.push({a:cuts[i-1], b:cuts[i], kind:x.kind, first:i === 1, prov:x.prov, iv:[[cuts[i-1], cuts[i]]], min:(cuts[i] - cuts[i-1])/60000});
   });
   points.filter(p => p.type === 'catch' && !p.timeUnknown).forEach(p => ev.push({a:p.time, b:p.time, n:p.count || 1}));
   ev.sort((x, y) => x.a - y.a);
@@ -2132,13 +2139,13 @@ function tripList(){
     const n = t.ev.reduce((s2, e) => s2 + (e.n || 0), 0), drifts = t.ev.filter(e => e.kind === 'drift' && e.first).length;
     const ses = t.ev.filter(e => e.kind), nIn = t.ev.filter(e => e.n && ses.some(x => x.iv.some(([a, b]) => a <= e.a && e.a <= b))).reduce((s2, e) => s2 + e.n, 0); // 流し・錨泊の記録中に釣れた分
     const fishMin = t.ev.filter(e => e.kind).reduce((s2, e) => s2 + e.min, 0), dist = t.ev.reduce((s2, e) => s2 + (e.dist || 0), 0);
-    return {a:t.a, b:t.b, n, nIn, drifts, fishMin, dist};
+    return {a:t.a, b:t.b, n, nIn, drifts, fishMin, dist, prov: t.ev.some(e => e.prov)};
   }).reverse();
 }
 function renderTrips(){
   const ts = tripList().slice(0, 20);
   $('#lTrips').innerHTML = ts.length ? ts.map(t => { const a = new Date(t.a), b = new Date(t.b);
-    return `<div class="item"><div class="t"><b>${a.getMonth()+1}/${a.getDate()}(${WD[a.getDay()]}) ${hm(a)}〜${ymd(a) === ymd(b) ? '' : `${b.getMonth()+1}/${b.getDate()} `}${hm(b)}　${shioName(a)}</b><span>${t.n ? `釣果 ${t.n}匹` : '釣果なし'}・流し ${t.drifts}回・実釣 ${t.fishMin >= 1 ? fmtDur(t.fishMin) + '（記録で確認）' : '記録なし'}・出船 ${fmtDur((t.b - t.a)/60000)}${t.dist ? '・航走 ' + fmtDist(t.dist) : ''}${t.fishMin >= 30 ? `・記録した実釣時間内 ${t.nIn}匹（1時間あたり ${(t.nIn/(t.fishMin/60)).toFixed(1)}匹）` : ''}</span></div></div>`; }).join('')
+    return `<div class="item"><div class="t"><b>${a.getMonth()+1}/${a.getDate()}(${WD[a.getDay()]}) ${hm(a)}〜${ymd(a) === ymd(b) ? '' : `${b.getMonth()+1}/${b.getDate()} `}${hm(b)}　${shioName(a)}</b><span>${t.n ? `釣果 ${t.n}匹` : '釣果なし'}・流し ${t.drifts}回・実釣 ${t.fishMin >= 1 ? fmtDur(t.fishMin) + '（記録で確認）' : '記録なし'}${t.prov ? '<b class="st-warn">・進行中（暫定）</b>' : ''}・出船 ${fmtDur((t.b - t.a)/60000)}${t.dist ? '・航走 ' + fmtDist(t.dist) : ''}${t.fishMin >= 30 ? `・記録した実釣時間内 ${t.nIn}匹（1時間あたり ${(t.nIn/(t.fishMin/60)).toFixed(1)}匹）` : ''}</span></div></div>`; }).join('')
     : '<p class="note" style="padding:8px">GPSで航跡が残ると、釣れなかった日も釣行としてここにまとまります（8時間あくか「ここから新しい釣行」で区切り）。</p>';
 }
 // 釣行の区切り（記録は8時間あくと自動で区切る。続けて別の釣行に出たときなどに手で区切る）
@@ -2173,7 +2180,7 @@ $('#lDrifts').onclick = e => {
   $('#histChip').style.display = 'flex';
   $('#histX').onclick = () => { histLayer.clearLayers(); $('#histChip').style.display = 'none'; };
   if (e.target.dataset.dgo) setNav({name:`${fmtDT(x.start)} の流しの始点`, lat:x.pts[0][0], lon:x.pts[0][1]});
-  else map.fitBounds(L.latLngBounds(x.pts.map(q => [q[0], q[1]])).pad(.3), {maxZoom:16});
+  else map.fitBounds(L.latLngBounds(x.pts.map(q => [q[0], q[1]])).pad(.3), {maxZoom: navigator.onLine ? 16 : OFF_MAXZ});
 };
 function renderTrend(fs){
   const cs = points.filter(p => p.type === 'catch' && !p.timeUnknown && (!fs || p.species === fs));
@@ -2211,7 +2218,7 @@ $('#lList').onclick = e => {
 };
 $('#lTracks').onclick = e => {
   const d = e.target.dataset;
-  if (d.tr){ e.target.checked ? shownTracks.add(d.tr) : shownTracks.delete(d.tr); store.set('shownTracks', [...shownTracks]); drawTracks(); if (e.target.checked){ const tr = tracks.find(t => t.id === d.tr); showTab('map'); setFollow(false); map.fitBounds(L.latLngBounds(tr.pts.map(p => [p[0], p[1]])).pad(.1)); } }
+  if (d.tr){ e.target.checked ? shownTracks.add(d.tr) : shownTracks.delete(d.tr); store.set('shownTracks', [...shownTracks]); drawTracks(); if (e.target.checked){ const tr = tracks.find(t => t.id === d.tr); showTab('map'); setFollow(false); map.fitBounds(L.latLngBounds(tr.pts.map(p => [p[0], p[1]])).pad(.1), {maxZoom: navigator.onLine ? 18 : OFF_MAXZ}); } }
   if (d.gpx){ const tr = tracks.find(t => t.id === d.gpx); download(`航跡_${ymd(new Date(tr.start))}.gpx`, gpxTrack(tr), 'application/gpx+xml'); }
   if (d.trdel && confirm('この航跡を削除しますか？')){ const next = tracks.filter(t => t.id !== d.trdel); if (!store.set('tracks', next)) return toast('航跡を削除できませんでした（保存に失敗）。' + SAVE_FAIL, true, 9000); tracks = next; shownTracks.delete(d.trdel); drawTracks(); }
 };
@@ -2514,7 +2521,7 @@ $('#sfDepart').onclick = () => {
   const [H, M] = (ret || '').split(':').map(Number), end = new Date(); end.setHours(H || 0, M || 0, 0, 0); if (end < new Date()) end.setDate(end.getDate() + 1);
   const retTxt = ret ? `${end.getMonth()+1}/${end.getDate()}(${WD[end.getDay()]}) ${ret}` : '未定';
   addTripBreak(true); // 出港連絡を出したら、そこから新しい釣行
-  shareText('出港しました', `【出港連絡】${fmtDT(Date.now())} 出港しました。\n${settings.home ? `出港地：${settings.home.name}\n` : ''}行き先：${memo || '室蘭近海'}\n乗船：${n}名\n帰港予定：${retTxt}\n${posText()}\n帰港予定を1時間過ぎても連絡がなければ 118番（海上保安庁）へ通報してください。`);
+  shareText('出港しました', `【出港連絡】${fmtDT(Date.now())} 出港しました。\n${settings.home ? `出港地：${settings.home.name}\n` : ''}行き先：${memo || '室蘭近海'}\n乗船：${n}名\n帰港予定：${retTxt}\n${posText()}\n帰港予定を過ぎても連絡が取れない場合は、118番（海上保安庁）へ相談してください。`);
   if (ck < CHECKS.length) toast(`出船前チェックが ${CHECKS.length - ck} 項目残っています`, true, 5000);
 };
 $('#sfArrive').onclick = () => shareText('帰港しました', `【帰港連絡】${fmtDT(Date.now())} 無事に帰港しました。${settings.home ? `（${settings.home.name}）` : ''}`);
@@ -2678,7 +2685,6 @@ async function netState(){
   if (off){ offRect.addTo(map); toast(`圏外です。保存済みの地図・予報・潮を表示します。${!st ? '地図は前もって保存していません（設定タブ）' : full ? '黄色の点線の内側・縮尺10〜14の「地理院 淡色」は保存済み' : `黄色の点線の内側の地図は一部（${st.ok}/${st.total}枚）だけ保存されています`}`, true, 7000); if (store.get('base','pale') !== 'pale' && store.get('pf', null)) setBase('pale'); }
   else map.removeLayer(offRect);
 }
-map.on('zoomend', () => { if (!navigator.onLine && map.getZoom() > 14) toast('この拡大率の地図は保存していません。縮尺を戻してください', false, 4000); });
 window.addEventListener('offline', netState);
 window.addEventListener('online', async () => {
   toast('電波が戻りました。予報を取り直しています…'); netState();
