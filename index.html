@@ -1106,10 +1106,11 @@ function logSession(x){
 }
 // ひと流しを終える：今日のうちは灰色の筋として残し、記録にも入れる
 function endDrift(){
+  endDrift.saved = true; // 履歴を保存できたか（呼んだ側が通知を分けるため）
   if (!drift) return true;
   if (drift.pts.length > 1){
     const x = {kind:'drift', id:drift.id, n:drift.n, start:drift.t, end:drift.pts[drift.pts.length-1][2], pts:drift.pts.slice()};
-    if (!logSession(x)) keepUnsaved(x, '流し');
+    endDrift.saved = logSession(x); if (!endDrift.saved) keepUnsaved(x, '流し');
     const hist = todayDrifts();
     if (drift.day === hist.d){ hist.a.push({id:drift.id, n:drift.n, pts:drift.pts}); while (hist.a.length > 30) hist.a.shift(); hist.total = drift.n; store.set('drifts', hist); }
   }
@@ -1219,7 +1220,8 @@ function updateMode(){
         const st = drift.start, n = drift.n;
         setMode('run'); if (mode !== 'run') return; // 流しの保存に失敗したら切り替えない
         setNav({name:`流し${n}回目の始点`, lat:st[0], lon:st[1]});
-        toast(`流し${n}回目を終えて記録しました。始点に着いたら「流し」を押すと次の流しが始まります`, false, 7000);
+        if (endDrift.saved === false) toast(`流し${n}回目を終えました（⚠ 履歴未保存：端末の空き不足。記録タブで再保存・書き出しできます）。始点へ案内します`, true, 9000);
+        else toast(`流し${n}回目を終えて記録しました。始点に着いたら「流し」を押すと次の流しが始まります`, false, 7000);
       };
       $('#mdRestart').onclick = () => startDrift();
     });
@@ -1284,9 +1286,11 @@ function updateMode(){
   // 常に見せるのは、いま困っていることだけ（GPS不良・画面保持の失敗・音が鳴らない）
   setText('mdNote', [st.gpsBad ? `<b class="st-warn">GPS ${me ? '±' + Math.round(me.acc) + 'm・' + Math.round(gpsAge()) + '秒前' : '未受信'}。空が見える所でスマホを持ってください</b>` : '',
     wakeState === 'fail' ? wakeText() : '',
-    settings.sound && !audioReady() ? '<button class="btn sm" id="mdSound" style="margin-top:4px">🔈 タップして警報音を有効にする</button>' : ''].filter(Boolean).join('<br>'));
+    settings.sound && !audioReady() ? '<button class="btn sm" id="mdSound" style="margin-top:4px">🔈 タップして警報音を有効にする</button>' : '',
+    wakeState === 'off' ? '画面保持：未設定（画面が消えると見張りが止まる端末があります）<br><button class="btn sm" id="mdWakeOn" style="margin-top:4px">💡 画面保持を有効にする</button>' : ''].filter(Boolean).join('<br>'));
   setText('mdNoteMore', 'この画面を表示している間だけ見張ります。<br>' + wakeText() + '<br>' + (!settings.sound ? '音：鳴らさない設定（振動のみ）' : audioReady() ? '音：準備済み' : '音：まだ有効になっていません'));
   if ($('#mdSound')) $('#mdSound').onclick = () => { unlockAudio(); setTimeout(() => { beep(); panelKey = ''; updateMode(); }, 150); };
+  if ($('#mdWakeOn')) $('#mdWakeOn').onclick = () => { if (!applySettings({wake:true}, '画面保持を有効にしました（電池を使います）')) return; $('#sWake').checked = true; applyWake().then(() => { panelKey = ''; updateMode(); }); };
   if (st.gpsBad && !anchor.gpsWarned){ anchor.gpsWarned = true; buzz([300,150,300]); beep(); toast('⚠ GPS不良：走錨の見張りができていません', true, 6000); }
   else if (!st.gpsBad) anchor.gpsWarned = false;
   // ほかの画面を見ていても、警報と見張りの状態は上に出す（編集画面の中にも）
@@ -1807,12 +1811,13 @@ function updateBarWx(){
   const i = grid.w[k].hourly.time.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`);
   if (i < 0 || Date.now() - gridAt > 12*3600000){ $('#vWind').textContent = '予報が古い'; $('#vWave').textContent = '--'; return; }
   const h = grid.w[k].hourly, wh = mhOf(grid.w[k], grid.m[k]).wave_height?.[i], old = Date.now() - gridAt > 6*3600000 ? '<small class="st-warn">古</small>' : '';
-  $('#vWind').innerHTML = h.wind_speed_10m[i] == null ? '欠測' : `<span class="${windLevel(h, i)}">${dir16(h.wind_direction_10m[i])}${h.wind_speed_10m[i].toFixed(0)}</span><small>(${h.wind_gusts_10m[i]?.toFixed(0) ?? '-'})</small>${old}`;
+  $('#vWind').innerHTML = h.wind_speed_10m[i] == null ? '欠測' : `<span class="${windLevel(h, i)}">${dir16(h.wind_direction_10m[i])}${h.wind_speed_10m[i].toFixed(0)}</span><small>・瞬${h.wind_gusts_10m[i]?.toFixed(0) ?? '-'}m/s</small>${old}`;
   $('#vWave').innerHTML = wh == null ? '--' : `<span class="${levelCls(wh, settings.waveG, settings.waveY)}">${wh.toFixed(1)}m</span>${old}`;
 }
 const WMO = {0:['☀','🌙'],1:['🌤','🌙'],2:['⛅','☁'],3:['☁','☁'],45:['🌫'],48:['🌫'],51:['🌦'],53:['🌦'],55:['🌦'],61:['🌧'],63:['🌧'],65:['🌧'],66:['🌧'],67:['🌧'],71:['🌨'],73:['🌨'],75:['🌨'],77:['🌨'],80:['🌦'],81:['🌦'],82:['⛈'],85:['🌨'],86:['🌨'],95:['⛈'],96:['⛈'],99:['⛈']};
 const wxIcon = (code, day) => { const a = WMO[code]; return a ? (day === 0 && a[1] ? a[1] : a[0]) : ''; };
 let wxReq = 0;
+let wxFailAt = 0; // 予報の取得に最後に失敗した時刻
 async function loadPointWx(){
   const ll = wxAt || (me ? [me.lat, me.lon] : [map.getCenter().lat, map.getCenter().lng]);
   const label = wxAt ? '指定した地点' : (me ? '現在地' : '地図の中心'), req = ++wxReq;
@@ -1829,6 +1834,7 @@ async function loadPointWx(){
     if (!wxData.cached) store.set('wx', wxData);
   }catch(e){
     if (req !== wxReq) return;
+    wxFailAt = Date.now();
     const c = store.get('wx', null);
     if (!c){ $('#wJudge').innerHTML = '<span class="note">判定できません</span>'; $('#wSlots').innerHTML = ''; $('#wTable').innerHTML = '<tr><td class="note">予報を取得できません（圏外？）。電波のある所で「更新」を押してください。</td></tr>'; return; }
     wxData = Object.assign(c, {cached:true});
@@ -1861,7 +1867,16 @@ function hourLevel(h, mh, i){
 }
 const LV_TEXT = {g:'◎ 基準内', y:'△ 注意', r:'× 厳しい', n:'？ 判定不可'};
 const LV_CLS = {g:'g', y:'y', r:'r', n:''};
+// 「現在地」として取った予報の地点から、いまの船が5km以上離れているか
+const wxFar = () => !!(wxData && wxData.label === '現在地' && wxMoved());
 function renderWx(){
+  renderWx0();
+  if (!wxFar()) return;
+  const d = distM([me.lat, me.lon], wxData.ll);
+  $('#wPlace').innerHTML = `<b class="st-warn">以前の地点の保存予報</b> ${fmtLL(wxData.ll[0], wxData.ll[1])}・現在地から${fmtDist(d)}`;
+  $('#wJudge').innerHTML = `<span class="note">現在地の判定：取得できません</span><div class="note" style="font-size:14px">${wxFailAt > wxData.at ? '再取得に失敗しました。' : '取り直しています。'}下の表は以前の地点の予報です（湾内と外海で大きく違うことがあります）</div>`;
+}
+function renderWx0(){
   const {w, m} = wxData, h = w.hourly, mh = mhOf(w, m);
   const now = new Date(); now.setMinutes(0,0,0);
   const i0 = h.time.indexOf(`${ymd(now)}T${pad(now.getHours())}:00`);
@@ -2385,7 +2400,7 @@ function renderReturnWx(){
   const L2 = idx.map(i => hourLevel(h, mh, i)), lvs = L2.map(x => x.lv), wst = lvs.includes('r') ? 'r' : lvs.includes('n') ? 'n' : lvs.includes('y') ? 'y' : 'g';
   const mx = a => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
   const bad = idx.find(i => hourLevel(h, mh, i).lv === 'r');
-  const place = wxMoved() ? '⚠ 以前の地点の予報（取り直し中・現在地の判定ではありません）' : (wxData.label || '');
+  const place = wxMoved() ? `⚠ 以前の地点の予報（${wxFailAt > wxData.at ? '再取得失敗' : '取り直し中'}・現在地の判定ではありません）` : (wxData.label || '');
   el.innerHTML = `<span style="font-size:14px">（${esc(place)} ${fmtLL(wxData.ll[0], wxData.ll[1])}・${fmtDT(wxData.at)} 取得${me ? `・現在地から${fmtDist(distM([me.lat, me.lon], wxData.ll))}` : ''}）</span><br>帰港予定 ${hm(end)} までの予報：<b class="${LV_CLS[wst]}">${LV_TEXT[wst]}</b>　平均風速 最大${mx(idx.map(i => h.wind_speed_10m[i]))?.toFixed(0) ?? '-'}m/s（突風${mx(idx.map(i => h.wind_gusts_10m[i]))?.toFixed(0) ?? '-'}）・有義波高 最大${mx(idx.map(i => mh.wave_height?.[i]))?.toFixed(1) ?? '-'}m${wxReasons(h, mh, idx, end)}`;
 }
 // ×や？の理由（雷・強い突風・視界不良・欠測）と、予報が帰港予定まで届いているか
