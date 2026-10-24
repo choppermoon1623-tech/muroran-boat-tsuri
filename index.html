@@ -767,13 +767,21 @@ const modeLayer = L.layerGroup().addTo(map);
 const histLayer = L.layerGroup().addTo(map);
 const windLayer = L.layerGroup();
 const waveLayer = L.layerGroup();
-let curBase = null;
+let curBase = null, tileWarnAt = 0;
+// 地図を取れないことが続いたら知らせる。保存済み（淡色・倍率10〜14・黄色の点線の内側）へ戻すか、取り直すかを選べる
+function tileFailed(){
+  tileFails.push(Date.now()); tileFails = tileFails.slice(-10);
+  if (tileFails.filter(t => Date.now() - t < 60000).length < 4 || Date.now() - tileWarnAt < 60000) return;
+  tileWarnAt = Date.now();
+  const inSaved = store.get('base', 'pale') === 'pale' && map.getZoom() >= 10 && map.getZoom() <= OFF_MAXZ && offRect.getBounds().contains(map.getCenter());
+  toast(inSaved ? '地図を取得できません（電波が弱い・圏外など）。この場所の地図はまだ保存されていない可能性があります（保存は設定タブ）' : '地図を取得できません（電波が弱い・圏外など）。保存した範囲・倍率の地図なら表示できます', true, 0,
+    [['保存した地図へ戻る', goSavedMap], ['再試行', () => { tileFails = []; tileWarnAt = 0; curBase.redraw(); }], ['このまま', () => {}]]);
+}
 function setBase(id){
   const b = BASES.find(x => x[0] === id) || BASES[0];
   if (curBase) map.removeLayer(curBase);
   curBase = b[3].addTo(map); curBase.bringToBack();
-  if (!curBase._failHook){ curBase._failHook = true; curBase.on('tileerror', () => { tileFails.push(Date.now()); tileFails = tileFails.slice(-10);
-    if (tileFails.filter(t => Date.now() - t < 60000).length === 4 && (map.getZoom() > OFF_MAXZ || store.get('base', 'pale') !== 'pale')) toast('地図を取得できません（電波が弱い・圏外など）', true, 0, [['保存した淡色地図へ戻る', goSavedMap], ['このまま', () => {}]]); }); }
+  if (!curBase._failHook){ curBase._failHook = true; curBase.on('tileerror', tileFailed); }
   store.set('base', b[0]); renderLayerSheet();
 }
 
@@ -2082,7 +2090,7 @@ function renderWx0(){
     if (i < i0 + 12){ const o = {n:3, r:4, y:2, g:1}; if (o[hl.lv] > o[worst]) worst = hl.lv; hl.warn.forEach(x => warn12.add(x)); hl.unk.forEach(x => unk12.add(x)); }
     const td = tideAt(d), gcls = gu == null ? '' : gu >= 15 ? 'r' : gu >= 10 ? 'y' : '';
     rows += `<tr><td><b>${pad(d.getHours())}</b></td><td>${hl.lv === 'n' ? '？' : `<span class="dot ${hl.lv}"></span>`}</td><td>${wxIcon(h.weather_code[i], h.is_day?.[i])}${hl.warn.includes('視界不良') ? '<small class="r">視</small>' : ''}</td>
-      <td class="${cw}">${ws == null ? '欠' : `<span class="arrow" style="transform:rotate(${wd+180}deg)">↑</span>${ws.toFixed(1)}`}</td><td class="${gcls}">${gu?.toFixed(0) ?? '-'}</td>
+      <td class="${cw}">${ws == null ? '欠' : `${wd != null ? `<span class="arrow" style="transform:rotate(${wd+180}deg)">↑</span>` : '<small class="note">向?</small>'}${ws.toFixed(1)}`}</td><td class="${gcls}">${gu?.toFixed(0) ?? '-'}</td>
       <td class="${cv}">${wh == null ? '欠' : wh.toFixed(1)}${mh.wave_period?.[i] ? `<span class="note">/${mh.wave_period[i].toFixed(0)}s</span>` : ''}${mh.wave_direction?.[i] != null ? `<br><span class="note">${dir16(mh.wave_direction[i])}から</span>` : ''}${sw != null && sw >= 0.5 ? `<br><span class="note">うねり${sw.toFixed(1)}</span>` : ''}</td>
       <td>${h.precipitation[i] ? h.precipitation[i].toFixed(1) : ''}</td><td>${td ? td.cm + (td.up ? '↗' : '↘') : ''}</td><td>${mh.sea_surface_temperature?.[i]?.toFixed(1) ?? ''}</td></tr>`;
   }
@@ -2259,12 +2267,14 @@ function tripList(){
   }).reverse();
 }
 function renderTrips(){
-  const ts = tripList().slice(0, 20);
+  const tAll = tripList(), lim = renderTrips.lim || 20, ts = tAll.slice(0, lim);
   $('#lTrips').innerHTML = (ts.length ? '<p class="note" style="margin:4px 0">実釣＝流しはGPSで測位できた時間、かかりは錨を打ってから上げるまでの時間。匹/時はその間の釣果で計算。</p>' : '') + (ts.length ? ts.map(t => { const a = new Date(t.a), b = new Date(t.b);
     return `<div class="item"><div class="t"><b>${a.getMonth()+1}/${a.getDate()}(${WD[a.getDay()]}) ${hm(a)}〜${ymd(a) === ymd(b) ? '' : `${b.getMonth()+1}/${b.getDate()} `}${hm(b)}　${shioName(a)}${t.prov ? ' <span class="st-warn">進行中（暫定）</span>' : ''}</b>
       <span style="display:block;font-weight:700;color:var(--text)">${t.n ? `釣果 ${t.n}匹` : '釣果なし'}・実釣 ${t.fishMin >= 1 ? fmtDur(t.fishMin) : '記録なし'}${t.fishMin >= 30 ? `・${(t.nIn/(t.fishMin/60)).toFixed(1)}匹/時（実釣中 ${t.nIn}匹）` : ''}</span>
       <span style="display:block">流し ${t.drifts}回・出船 ${fmtDur((t.b - t.a)/60000)}${t.dist ? '・航走 ' + fmtDist(t.dist) : ''}</span></div></div>`; }).join('')
-    : '<p class="note" style="padding:8px">GPSで航跡が残ると、釣れなかった日も釣行としてここにまとまります（8時間あくか「ここから新しい釣行」で区切り）。</p>');
+    : '<p class="note" style="padding:8px">GPSで航跡が残ると、釣れなかった日も釣行としてここにまとまります（8時間あくか「ここから新しい釣行」で区切り）。</p>')
+    + (tAll.length > lim ? `<button class="btn sm wide" id="lTripMore" style="margin:6px 0">さらに表示（残り ${tAll.length - lim}件）</button>` : '');
+  if ($('#lTripMore')) $('#lTripMore').onclick = () => { renderTrips.lim = lim + 20; renderTrips(); };
 }
 // 釣行の区切り（記録は8時間あくと自動で区切る。続けて別の釣行に出たときなどに手で区切る）
 function addTripBreak(silent){
@@ -2281,11 +2291,17 @@ function renderDrifts(){
   $('#lLogCap').innerHTML = `流し・錨泊の記録 ${nLog}/${LOG_MAX}件（上限を超えると古い順に消えます。釣果の地点は残ります）${nLog >= LOG_MAX - 30 ? `<br><b class="st-warn">⚠ もうすぐ上限です。「全データを書き出し」で残してください</b> <button class="btn sm" id="lLogExport">書き出す</button>` : ''}`;
   if ($('#lLogExport')) $('#lLogExport').onclick = exportJson;
   const log = store.get('driftLog', []).filter(x => x.kind === 'drift' && x.pts?.length > 1).reverse();
-  const fs = $('#lSpecies').value;
-  const rows = log.map(x => { const c = points.filter(p => p.type === 'catch' && p.cond?.driftId === x.id && (!fs || p.species === fs)); return {x, c, n: c.reduce((a, p) => a + (p.count || 1), 0)}; })
-    .filter(r => !fs || r.n > 0).slice(0, 40);
-  $('#lDrifts').innerHTML = rows.length ? rows.map(({x, c, n}) => `<div class="item"><div class="t"><b>${fmtDT(x.start)}　流し${x.n || ''}　${n ? `🐟${n}匹` : '釣果なし'}</b><span>${fmtDur((x.end - x.start)/60000)}・${fmtDist(trackDist(x.pts))}${c.length ? '・' + esc([...new Set(c.map(p => p.species).filter(Boolean))].join('・')) : ''}</span></div><button class="btn sm" data-dshow="${esc(x.id)}">地図</button><button class="btn sm" data-dgo="${esc(x.id)}" aria-label="始点へ向かう">➤始点</button></div>`).join('')
-    : `<p class="note" style="padding:8px">${fs ? 'この魚種が釣れた流しはまだありません。' : '「流し」モードで流すと、通った筋がここに残ります。'}</p>`;
+  const fs = $('#lSpecies').value, ym = t => { const d = new Date(t); return `${d.getFullYear()}/${pad(d.getMonth() + 1)}`; };
+  const months = [...new Set(log.map(x => ym(x.start)))]; if (!months.includes(renderDrifts.month)) renderDrifts.month = '';
+  const all = log.map(x => { const c = points.filter(p => p.type === 'catch' && p.cond?.driftId === x.id && (!fs || p.species === fs)); return {x, c, n: c.reduce((a, p) => a + (p.count || 1), 0)}; })
+    .filter(r => (!fs || r.n > 0) && (!renderDrifts.month || ym(r.x.start) === renderDrifts.month));
+  const lim = renderDrifts.lim || 40, rows = all.slice(0, lim);
+  const head = months.length > 1 ? `<div class="row" style="padding:8px 0 0"><label class="note" for="lDriftMonth">月で絞る</label><select id="lDriftMonth" style="flex:1"><option value="">すべて（${log.length}件）</option>${months.map(m => `<option ${m === renderDrifts.month ? 'selected' : ''}>${m}</option>`).join('')}</select></div>` : '';
+  const more = all.length > lim ? `<button class="btn sm wide" id="lDriftMore" style="margin:6px 0">さらに表示（残り ${all.length - lim}件）</button>` : '';
+  $('#lDrifts').innerHTML = head + (rows.length ? rows.map(({x, c, n}) => `<div class="item"><div class="t"><b>${fmtDT(x.start)}　流し${x.n || ''}　${n ? `🐟${n}匹` : '釣果なし'}</b><span>${fmtDur((x.end - x.start)/60000)}・${fmtDist(trackDist(x.pts))}${c.length ? '・' + esc([...new Set(c.map(p => p.species).filter(Boolean))].join('・')) : ''}</span></div><button class="btn sm" data-dshow="${esc(x.id)}">地図</button><button class="btn sm" data-dgo="${esc(x.id)}" aria-label="始点へ向かう">➤始点</button></div>`).join('')
+    : `<p class="note" style="padding:8px">${fs ? 'この魚種が釣れた流しはまだありません。' : '「流し」モードで流すと、通った筋がここに残ります。'}</p>`) + more;
+  if ($('#lDriftMonth')) $('#lDriftMonth').onchange = e => { renderDrifts.month = e.target.value; renderDrifts.lim = 40; renderDrifts(); };
+  if ($('#lDriftMore')) $('#lDriftMore').onclick = () => { renderDrifts.lim = lim + 40; renderDrifts(); };
 }
 $('#lDrifts').onclick = e => {
   const id = e.target.dataset.dshow || e.target.dataset.dgo; if (!id) return;
@@ -2687,7 +2703,8 @@ const closeZ = () => !useSaved() ? Math.max(map.getZoom(), 15) : Math.min(Math.m
 map.on('zoomend', () => { if (useSaved() && map.getZoom() > OFF_MAXZ && !closeZ.warned){ closeZ.warned = true; toast(`圏外では z${OFF_MAXZ} より拡大した地図は保存されていないことがあります`, true, 0, [['保存した淡色地図へ戻る', goSavedMap], ['このまま', () => {}]]); } if (map.getZoom() <= OFF_MAXZ) closeZ.warned = false; });
 // 拡大・縮小のアニメーションが終わらずに残っていると、次の倍率変更が無視される（画面の切り替え中など）。先に終わらせる
 // 前もって保存したのは「地理院 淡色」の倍率10〜14。種類・倍率・保存範囲の枠をまとめてそこへ戻す
-function goSavedMap(){ settleMap(); if (store.get('base', 'pale') !== 'pale') setBase('pale'); if (map.getZoom() > OFF_MAXZ) map.setZoom(OFF_MAXZ, {animate:false}); try{ offRect.addTo(map); }catch(e){}
+function goSavedMap(){ settleMap(); if (store.get('base', 'pale') !== 'pale') setBase('pale'); const z = map.getZoom(); if (z > OFF_MAXZ || z < 10) map.setZoom(Math.min(OFF_MAXZ, Math.max(10, z)), {animate:false});
+  try{ offRect.addTo(map); if (!offRect.getBounds().contains(map.getCenter())) map.panInsideBounds(offRect.getBounds(), {animate:false}); }catch(e){}
   if (!settings.offMap && applySettings({offMap:true})) $('#sOffMap').checked = true;
   toast('保存した淡色地図（倍率14まで）で使います。黄色の点線の内側が保存範囲です。電波が戻ったら設定タブで解除できます', false, 6000, [['今すぐ通常に戻す', () => { if (applySettings({offMap:false})){ $('#sOffMap').checked = false; tileFails = []; } }]]); }
 function settleMap(){ if (map._animatingZoom){ try{ map._onZoomTransitionEnd(); }catch(e){} } }
