@@ -566,6 +566,7 @@ body.mob #toast.low{top:auto;bottom:calc(var(--mobH,220px) + 80px + env(safe-are
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="tide-data.js"></script>
+<script src="bathy-data.js"></script>
 <script>
 'use strict';
 // ===== 基本 =====
@@ -861,11 +862,57 @@ const OVER = [
       L.marker([lat, lon], {icon: dotIcon('#fadb14', 16, '')}).bindPopup(msilPop(f.properties['名称'] || '灯台', [['位置', fmtLL(lat, lon)]])).addTo(g); });
   }},
   {id:'gebco', name:'水深の色分け', desc:'GEBCO。沖の深さの大まかな目安', sw:'#2f54eb', layer:gebco},
+  {id:'bathy', name:'細かい等深線（目安）', desc:'GEBCO。5m刻み（50m以深は10m〜）。圏外でも表示。約400m格子なので根や瀬は出ません', sw:'#69c0ff', layer:L.layerGroup()},
   {id:'wind', name:'風の予報（矢印）', desc:'時刻を動かして72時間先まで', sw:'#ffc53d', layer:windLayer},
   {id:'wave', name:'波の予報', desc:'波高(m)。色は出船の目安', sw:'#3ddc84', layer:waveLayer},
   {id:'tracks', name:'航跡', desc:'記録タブで表示する航跡を選ぶ', sw:'#ffd666', on:true, layer:trackLayer}
 ];
 let fixedNets = [];
+// ===== GEBCO の水深格子（bathy-data.js、端末に保存済みなので圏外でも使える） =====
+const GEBCO_ATTR = '<a href="https://www.gebco.net/" target="_blank">GEBCO_2025 Grid</a>';
+const bathyZ = (() => { try{ const b = atob(BATHY.z), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new Int16Array(u.buffer); } catch(e){ return null; } })();
+// 標高(m)。負＝水深。範囲外は null。4つの格子点の重み付き平均（陸の点が混ざると浅めに出る）
+function bathyAt(lat, lon){
+  if (!bathyZ) return null;
+  const y = (lat - BATHY.lat0) / BATHY.step, x = (lon - BATHY.lon0) / BATHY.step;
+  if (y < 0 || x < 0 || y > BATHY.nlat - 1 || x > BATHY.nlon - 1) return null;
+  const i = Math.min(Math.floor(y), BATHY.nlat - 2), j = Math.min(Math.floor(x), BATHY.nlon - 2), fy = y - i, fx = x - j, Z = (a, b) => bathyZ[a * BATHY.nlon + b];
+  return (Z(i, j) * (1 - fx) + Z(i, j + 1) * fx) * (1 - fy) + (Z(i + 1, j) * (1 - fx) + Z(i + 1, j + 1) * fx) * fy;
+}
+// 「水深 約◯m」の文。陸・岸ぎわは出さない
+function bathyText(lat, lon){
+  const z = bathyAt(lat, lon);
+  if (z == null) return '';
+  if (z > -3) return '水深の目安：岸ぎわ・陸のため出せません';
+  return `水深の目安：約${Math.round(-z)}m <small style="color:#666">（GEBCO・約400m格子の平均。根や瀬は出ません）</small>`;
+}
+const BATHY_LEVELS = [5,10,15,20,25,30,35,40,45,50,60,70,80,90,100,120,140,160,180,200,250,300,350,400];
+const bathyColor = d => d <= 20 ? '#69c0ff' : d <= 50 ? '#2f54eb' : d <= 100 ? '#1d39c4' : '#10239e';
+// 格子から等深線を引く（マーチングスクエア）。線分のまま描く
+function drawBathyContours(g){
+  const N = BATHY.nlat, M = BATHY.nlon, Z = (i, j) => -bathyZ[i * M + j];
+  const ll = (i, j) => [BATHY.lat0 + i * BATHY.step, BATHY.lon0 + j * BATHY.step];
+  BATHY_LEVELS.forEach(d => {
+    const segs = [];
+    for (let i = 0; i < N - 1; i++) for (let j = 0; j < M - 1; j++){
+      const c = [[i, j], [i, j + 1], [i + 1, j + 1], [i + 1, j]], v = c.map(([a, b]) => Z(a, b));
+      const pts = [];
+      for (let k = 0; k < 4; k++){
+        const a = v[k], b = v[(k + 1) % 4];
+        if ((a < d) !== (b < d)){
+          const t = (d - a) / (b - a), p = ll(...c[k]), q = ll(...c[(k + 1) % 4]);
+          pts.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+        }
+      }
+      if (pts.length === 2) segs.push(pts);
+      else if (pts.length === 4) segs.push([pts[0], pts[1]], [pts[2], pts[3]]);
+    }
+    if (!segs.length) return;
+    const major = d % 50 === 0 || d === 20;
+    L.polyline(segs, {color: bathyColor(d), weight: major ? 1.8 : .9, opacity: major ? .9 : .65, interactive: true})
+      .bindTooltip(`水深 約${d}m（GEBCO）`, {sticky:true}).addTo(g);
+  });
+}
 OVER.forEach(o => {
   if (o.msil){
     o.layer = L.layerGroup(); o.layer.options.attribution = MSIL_ATTR;
@@ -882,6 +929,8 @@ OVER.forEach(o => {
     });
   }
 });
+{ const o = OVER.find(x => x.id === 'bathy'); o.layer.options.attribution = GEBCO_ATTR;
+  o.layer.on('add', () => { if (o.loaded || !bathyZ) return; drawBathyContours(o.layer); o.loaded = true; o.count = countLeaves(o.layer); renderLayerSheet(); }); }
 const shownOver = new Set(store.get('over', null) || OVER.filter(o => o.on).map(o => o.id));
 function setOver(id, on){
   const o = OVER.find(x => x.id === id); if (!o) return;
@@ -1700,6 +1749,7 @@ map.on('contextmenu', e => {
   const ll = [e.latlng.lat, e.latlng.lng];
   let html = `<div><b>${fmtLL(ll[0], ll[1])}</b></div>`;
   if (me) html += `<div style="color:#555">ここから ${fmtDist(distM([me.lat, me.lon], ll))}・方位 ${Math.round(bearing([me.lat, me.lon], ll))}°</div>`;
+  const bt = bathyText(ll[0], ll[1]); if (bt) html += `<div>${bt}</div>`;
   html += `<div><button class="btn sm" data-act="add">＋ポイント登録</button><button class="btn sm" data-act="go">➤ 向かう</button><button class="btn sm" data-act="wx">☁ ここの天気</button></div>`;
   const pop = L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
   pop.getElement().onclick = ev => {
@@ -3027,7 +3077,7 @@ async function checkShell(){
   try{
     if (!('caches' in window) || !navigator.serviceWorker){ swState = 'none'; return; }
     const keys = await caches.keys(), app = keys.find(k => k.startsWith('mbt-app-'));
-    const okFiles = app ? (await Promise.all(['index.html', 'tide-data.js', 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'].map(u => caches.open(app).then(c => c.match(u))))).every(Boolean) : false;
+    const okFiles = app ? (await Promise.all(['index.html', 'tide-data.js', 'bathy-data.js', 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'].map(u => caches.open(app).then(c => c.match(u))))).every(Boolean) : false;
     swState = okFiles && navigator.serviceWorker.controller ? 'ok' : swState === 'fail' ? 'fail' : 'wait';
   }catch(e){ swState = 'fail'; }
 }

@@ -1,6 +1,6 @@
 // 室蘭ボート釣りナビ：圏外でも使えるようにキャッシュする
-const APP = 'mbt-app-v34', TILES = 'mbt-tiles', API = 'mbt-api';
-const SHELL = ['./', 'index.html', 'tide-data.js', 'manifest.webmanifest', 'icon.svg',
+const APP = 'mbt-app-v35', TILES = 'mbt-tiles', API = 'mbt-api';
+const SHELL = ['./', 'index.html', 'tide-data.js', 'bathy-data.js', 'manifest.webmanifest', 'icon.svg',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'];
 const TILE_HOSTS = ['cyberjapandata.gsi.go.jp', 'server.arcgisonline.com', 'tiles.openseamap.org', 'tile.openstreetmap.org', 'wms.gebco.net'];
